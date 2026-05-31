@@ -120,6 +120,12 @@ check("P9 false replaced",
 check("P9 trueValue preserved",
       c.obfuscate_booleans("local trueValue := 1;"),
       "local trueValue := 1;")
+check("P9 falseValue preserved",
+      c.obfuscate_booleans("local falseValue := 0;"),
+      "local falseValue := 0;")
+check("P9 atrue before-guard preserved",
+      c.obfuscate_booleans("atrue := 1;"),
+      "atrue := 1;")
 check("P9 true inside string untouched",
       c.obfuscate_booleans('Print("true");'),
       'Print("true");')

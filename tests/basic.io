@@ -96,6 +96,12 @@ check("P9 false replaced",
 check("P9 trueValue preserved",
     chalkobusf obfuscateBooleans("local trueValue := 1;"),
     "local trueValue := 1;")
+check("P9 falseValue preserved",
+    chalkobusf obfuscateBooleans("local falseValue := 0;"),
+    "local falseValue := 0;")
+check("P9 atrue before-guard preserved",
+    chalkobusf obfuscateBooleans("atrue := 1;"),
+    "atrue := 1;")
 check("P9 true inside string untouched",
     chalkobusf obfuscateBooleans("Print(\"true\");"),
     "Print(\"true\");")
@@ -108,7 +114,7 @@ opts := Map clone do(
     atPut("obfuscateNils", true); atPut("addJunk", true)
     atPut("obfuscateBools", true)
 )
-src := "// c\nlocal w := 10;\nPrint(\"Area\" & NumberStr(w));"
+src := "// c\nlocal w := 10;\nlocal flag := true;\nPrint(\"Area\" & NumberStr(w));"
 check("Full pipeline deterministic",
     chalkobusf obfuscate(src, opts), chalkobusf obfuscate(src, opts))
 
