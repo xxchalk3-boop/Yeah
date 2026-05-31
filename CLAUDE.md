@@ -2,14 +2,27 @@
 
 ## What this project is
 
-`chalkobusf` is a NewtonScript source-code obfuscator written entirely in NewtonScript. It takes a string of NewtonScript source and runs it through up to six transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
+`chalkobusf` is a NewtonScript source-code obfuscator. It takes a string of NewtonScript source and runs it through up to eight transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
 
-The codebase has exactly two files:
+The obfuscator exists in **three implementations that produce byte-identical output**:
+
+1. **NewtonScript** (`src/chalkobusf.ns`) — the original reference implementation.
+2. **Io** (`src/chalkobusf.io`) — a native [Io language](https://iolanguage.org) port; the cleanest of the three because Io's `seq at(i)` returns a character code directly, so the NS idiom `Ord(SubStr(s, i, 1))` collapses to `src at(i)`.
+3. **Python** (`run.py`) — the CLI runner and the basis of the standalone executable.
+
+The codebase files:
 
 ```
-src/chalkobusf.ns   — the obfuscator (single frame object)
-tests/basic.ns      — smoke tests, one per pass + a full-pipeline test
+src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
+src/chalkobusf.io   — the obfuscator, native Io port (single Object clone)
+tests/basic.ns      — NewtonScript smoke tests (one per pass + full pipeline)
+tests/basic.io      — Io test suite, 22 explicit assertions (run: io tests/basic.io)
+run.py              — Python CLI runner (faithful port of the NS logic)
+run.io              — Io CLI runner (same flags as run.py)
+.gitignore          — excludes PyInstaller build artifacts (dist/, build/, *.spec)
 ```
+
+**Equivalence is verified, not assumed.** The Io and Python runners are cross-checked to produce identical output byte-for-byte across every pass and the full pipeline, including on the obfuscator's own 14 KB source. If you change one implementation, change the others to match and re-run the cross-check (see *Running tests*).
 
 ---
 
@@ -37,22 +50,55 @@ Built-in functions used here: `Ord(ch)`, `SubStr(s, start, len)`, `StrLen(s)`, `
 
 ---
 
-## The six obfuscation passes
+## Io language primer
+
+Io is a prototype-based, message-passing language. Everything is a message sent to a receiver. Key syntax as used in `src/chalkobusf.io`:
+
+| Construct | Syntax | Notes |
+|---|---|---|
+| New slot / variable | `x := value` | `setSlot` |
+| Reassign existing | `x = value` | `updateSlot` (searches proto chain) |
+| Object / prototype | `Obj := Object clone do( … )` | slots defined inside `do(...)` |
+| Method | `m := method(a, b, body…)` | last expression is the return value |
+| Method call | `obj m(arg)` or `self m(arg)` | parens optional for zero args |
+| Conditional | `if(cond, thenExpr, elseExpr)` | nest for `else if`; multi-statement branches wrapped in `( … )` |
+| While | `while(cond, body…)` | |
+| Infinite loop | `loop( … break )` | used for the repeat-until in `genName` |
+| String concat | `a .. b` | |
+| Char code at index | `s at(i)` | **returns a Number** — replaces NS `Ord(SubStr(s,i,1))` |
+| Code → 1-char string | `code asCharacter` | |
+| Substring | `s exSlice(start, end)` | end-exclusive; replaces NS `SubStr` |
+| String length | `s size` | |
+| Number → string | `n asString` | integers print without a decimal point |
+| Integer division | `(a / b) floor` | `/` is float division |
+| Modulo | `a % b` | |
+| List | `list()`, `l append(x)`, `l at(i)`, `l size` | used for the rename `mappings` |
+| Map (opts) | `Map clone atPut(k, v)`, `m at(k)`, `m hasKey(k)` | missing key → `nil` |
+| Nil / false | `nil`, `false` | both falsy in `if`; everything else truthy |
+| Boolean | `a and b`, `a or b`, `x not`, `x isNil` | |
+
+The `chalkobusf` Io object is a single `Object clone do( … )` with the same two mutable state slots (`_counter`, `_junkPhase`) and the same method names (camelCased: `stripComments`, `obfuscateNumbers`, …) as the NS frame.
+
+---
+
+## The eight obfuscation passes
 
 Passes are applied in this fixed order inside `chalkobusf:Obfuscate(code, opts)`:
 
 | # | Slot key | Function | What it does |
 |---|---|---|---|
-| 1 | `stripComments` | `StripComments` | Removes `//` line comments and `/* */` block comments; skips string literals verbatim |
+| 1 | `stripComments` | `StripComments` | Removes `//` line comments and `/* */` block comments; skips string literals verbatim (escape-aware) |
 | 2 | `minifySpace` | `MinifyWhitespace` | Collapses every run of whitespace to a single space |
-| 3 | `encodeStrings` | `EncodeStrings` | Replaces `"literal"` with a `Char(N) & Char(M) & …` chain; splits each string at its midpoint for extra noise |
+| 3 | `encodeStrings` | `EncodeStrings` | Replaces `"literal"` with a `Char(N) & Char(M) & …` chain; splits each string at its midpoint for extra noise; handles `\"` and `\\` escape sequences |
 | 4 | `obfuscateNums` | `ObfuscateNumbers` | Replaces integer `N` with `(a + b)` where `a = N div 2`, `b = N - a`; skips digit runs that follow an identifier character so generated names like `_0x1a` are never corrupted |
 | 5 | `renameVars` | `RenameLocals` | Renames every `local` variable to a `_0xN` hex-style identifier; scans declarations first, then rewrites references via the same `mappings` array |
 | 6 | `addJunk` | `InjectJunk` | Prepends one of three rotating dead-code snippets (unreachable `Print`, never-running `while`, always-skipped `if nil`) |
+| 7 | `deepNums` | `DeepObfuscateNumbers` | Runs `ObfuscateNumbers` three times so numbers become nested arithmetic trees: `42 → (21+21) → ((10+11)+(10+11)) → …` |
+| 8 | `obfuscateNils` | `ObfuscateNils` | Replaces every standalone `nil` token with `(0 > 1)` — semantically identical but unreadable; skips string literals and partial identifiers like `nilCount` |
 
-**Order matters.** Pass 4 must run after pass 5 OR after pass 3, not between them in a way that breaks generated names. As implemented, the pipeline is safe: passes 1–6 in sequence.
+**Order matters.** Pass 7 (`deepNums`) runs after pass 4 so it can further nest the `(a + b)` expressions that pass 4 introduced. Pass 8 (`obfuscateNils`) runs after pass 5 so renamed `_0xN` variables (which contain digits, not `nil`) are not affected. The full safe sequence is passes 1 → 8.
 
-Each pass is also callable in isolation for testing (`chalkobusf:StripComments(src)`, etc.).
+Each pass is also callable in isolation (`chalkobusf:StripComments(src)`, etc.).
 
 ---
 
@@ -71,12 +117,14 @@ chalkobusf := {
   GenName,             // returns _0x0, _0x1, _0x2, …
   FindMapping,         // linear search in [[oldName, newName], …]
 
-  // Passes 1–6
+  // Passes 1–8
   StripComments, MinifyWhitespace,
   EncodeStr, SplitAndEncode, EncodeStrings,
   ObfuscateNumber, ObfuscateNumbers,
   RenameLocals,
   MakeJunk, InjectJunk,
+  DeepObfuscateNumbers,
+  ObfuscateNils,
 
   // Entry point
   Obfuscate,           // resets state, applies selected passes in order
@@ -87,33 +135,127 @@ chalkobusf := {
 
 ## Entry point API
 
+NewtonScript:
 ```newtonscript
 local opts := {
-  stripComments: true,
-  minifySpace:   true,
-  encodeStrings: true,
-  obfuscateNums: true,
-  renameVars:    true,
-  addJunk:       true,
+  stripComments: true, minifySpace:   true,
+  encodeStrings: true, obfuscateNums: true,
+  deepNums:      true, renameVars:    true,
+  obfuscateNils: true, addJunk:       true,
 };
 local result := chalkobusf:Obfuscate(sourceCode, opts);
 ```
 
-Any slot absent or set to `nil` skips that pass. Truthy value (including `true`) enables it.
+Io (opts is a `Map`):
+```io
+opts := Map clone do(
+  atPut("stripComments", true); atPut("minifySpace",   true)
+  atPut("encodeStrings", true); atPut("obfuscateNums", true)
+  atPut("deepNums",      true); atPut("renameVars",    true)
+  atPut("obfuscateNils", true); atPut("addJunk",       true)
+)
+result := chalkobusf obfuscate(sourceCode, opts)
+```
+
+Any key absent or set to `nil` skips that pass. Truthy value (including `true`) enables it.
 
 `Obfuscate` resets `_counter` and `_junkPhase` to 0 at the start of each call, so repeated calls are deterministic.
 
 ---
 
+## Running the obfuscator
+
+There are two interchangeable command-line runners — `run.py` (Python) and `run.io` (Io). **They accept the same flags and produce identical output.** No Newton environment is required for either.
+
+**With Python** (no extra install needed):
+```
+python3 run.py src/chalkobusf.ns                        # all passes (default)
+python3 run.py --strip-comments --minify src/chalkobusf.ns
+python3 run.py src/chalkobusf.ns -o obfuscated.ns       # write to a file
+cat src/chalkobusf.ns | python3 run.py --all            # read from stdin
+```
+
+**With Io** (requires the `io` interpreter — see below):
+```
+io run.io src/chalkobusf.ns                             # all passes (default)
+io run.io --strip-comments --minify src/chalkobusf.ns
+io run.io src/chalkobusf.ns -o obfuscated.ns
+cat src/chalkobusf.ns | io run.io --all
+```
+
+There is no Io package in apt/pip; build the interpreter from source (a few minutes):
+```
+git clone --depth 1 https://github.com/IoLanguage/io.git
+cd io && mkdir build && cd build && cmake .. && make -j4
+# binary lands at  build/_build/binaries/io
+```
+
+**Available flags** (omitting all flags enables `--all`):
+
+| Flag | Pass |
+|---|---|
+| `--strip-comments` | 1 — remove `//` and `/* */` comments |
+| `--minify` | 2 — collapse whitespace |
+| `--encode-strings` | 3 — encode string literals as `Char()` chains |
+| `--obfuscate-nums` | 4 — split integers into `(a + b)` |
+| `--rename-vars` | 5 — rename locals to `_0xN` names |
+| `--add-junk` | 6 — prepend dead-code block |
+| `--deep-nums` | 7 — 3 rounds of number obfuscation (nested trees) |
+| `--obfuscate-nils` | 8 — replace `nil` tokens with `(0 > 1)` |
+| `--all` | all eight passes |
+
+---
+
+## Building a standalone executable
+
+`run.py` can be bundled into a single self-contained binary (no Python installation required) using [PyInstaller](https://pyinstaller.org):
+
+```
+pip install pyinstaller
+pyinstaller --onefile --name chalkobusf run.py
+```
+
+The binary is written to `dist/chalkobusf` (Linux/macOS) or `dist\chalkobusf.exe` (Windows). It accepts the same flags as the Python script:
+
+```
+./dist/chalkobusf src/chalkobusf.ns
+./dist/chalkobusf --all src/chalkobusf.ns -o out.ns
+cat src/chalkobusf.ns | ./dist/chalkobusf --strip-comments --minify
+```
+
+`dist/`, `build/`, and `*.spec` are listed in `.gitignore` — do not commit them.
+
+---
+
 ## Running tests
 
+**Io test suite** (the primary, runnable test suite — 22 explicit assertions):
+```
+io tests/basic.io
+```
+Loads `src/chalkobusf.io`, exercises each pass with a focused fixture, checks `genName` hex rollover and junk rotation, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
+
+**NS tests** (require a Newton environment or compatible interpreter):
 ```
 Load("tests/basic.ns");
 ```
+Loads `src/chalkobusf.ns` itself and exercises each pass, then the full pipeline. No assertion framework — wrong output or an exception means failure.
 
-Run from the Newton environment or a compatible NS interpreter. The test file calls `Load("src/chalkobusf.ns")` itself. Each pass is exercised with a focused fixture, then the full pipeline runs on a multi-line snippet.
+**Cross-implementation check** (proves Io ≡ Python byte-for-byte). Run each flag through both runners and diff:
+```
+for p in --strip-comments --minify --encode-strings --obfuscate-nums \
+         --rename-vars --add-junk --deep-nums --obfuscate-nils --all; do
+  cmp -s <(python3 run.py $p src/chalkobusf.ns) \
+         <(io run.io $p src/chalkobusf.ns) && echo "MATCH $p" || echo "DRIFT $p"
+done
+```
+Any `DRIFT` means the implementations diverged — fix before committing.
 
-There is no test framework — assertions are implicit: if a pass throws or produces obviously wrong output, it fails.
+---
+
+## String escape handling
+
+The string scanners in passes 1 and 3 handle `\"` (escaped quote) and `\\` (escaped backslash). When a `\` is seen inside a string literal, the following character is consumed as part of the string without being treated as a terminator. Other `\x` sequences pass through as-is.
 
 ---
 
@@ -131,10 +273,14 @@ There is no test framework — assertions are implicit: if a pass throws or prod
 
 ## Adding a new pass
 
-1. Add a new method slot to the `chalkobusf` frame with a comma after the previous last slot.
-2. Add a corresponding `opts` key name (document it in the header comment block at the top of `chalkobusf.ns`).
-3. Add an `if opts.yourKey then result := self:YourPass(result);` line in `Obfuscate`, in the intended pipeline position.
-4. Add a focused test fixture in `tests/basic.ns`.
+A new pass must land in **all three implementations** so they stay byte-identical. For each of `src/chalkobusf.ns`, `src/chalkobusf.io`, and `run.py`:
+
+1. Add the new pass method (NS frame slot with trailing comma / Io `method` inside `do(...)` / Python method).
+2. Add a corresponding `opts` key and document it in the header comment block.
+3. Add the `if opts.yourKey then result := self:YourPass(result);` (or the Io / Python equivalent) line in `Obfuscate`/`obfuscate`, in the intended pipeline position.
+4. For `run.py`, also add the `--your-flag` argparse entry and wire it into the `opts` dict and the `explicit`/`use_all` logic.
+
+Then add a fixture to `tests/basic.io`, run `io tests/basic.io`, and run the cross-implementation check (see *Running tests*) to confirm Io and Python still agree.
 
 ---
 
