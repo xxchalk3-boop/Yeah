@@ -16,7 +16,7 @@ The codebase files:
 src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
 src/chalkobusf.io   — the obfuscator, native Io port (single Object clone)
 tests/basic.ns      — NewtonScript smoke tests (one per pass + full pipeline)
-tests/basic.io      — Io test suite, 29 explicit assertions (run: io tests/basic.io)
+tests/basic.io      — Io test suite, 28 explicit assertions (run: io tests/basic.io)
 tests/basic.py      — Python test suite, 28 explicit assertions (run: python3 tests/basic.py)
 run.py              — Python CLI runner (faithful port of the NS logic)
 run.io              — Io CLI runner (same flags as run.py)
@@ -241,7 +241,7 @@ python3 tests/basic.py
 ```
 Loads `run.py`'s `_Chalkobusf` class directly, exercises every pass with focused fixtures, checks `_gen_name` hex rollover and junk rotation, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
 
-**Io test suite** (requires the `io` interpreter — 29 explicit assertions):
+**Io test suite** (requires the `io` interpreter — 28 explicit assertions):
 ```
 io tests/basic.io
 ```

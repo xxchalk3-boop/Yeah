@@ -65,7 +65,8 @@ while(i < args size,
                     (
                         writeln("usage: io run.io [passes] [FILE] [-o OUTPUT]")
                         writeln("passes: --strip-comments --minify --encode-strings --obfuscate-nums")
-                        writeln("        --rename-vars --add-junk --deep-nums --obfuscate-nils --all")
+                        writeln("        --rename-vars --add-junk --deep-nums --obfuscate-nils")
+                        writeln("        --obfuscate-bools --all")
                         System exit(0)
                     ),
                     inputPath = a

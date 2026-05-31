@@ -3,7 +3,7 @@
 //
 // This is a faithful port of src/chalkobusf.ns to the Io language
 // (https://iolanguage.org). It takes a string of NewtonScript source and
-// runs it through up to eight transformation passes, returning obfuscated
+// runs it through up to nine transformation passes, returning obfuscated
 // source that is semantically equivalent but hard to read.
 //
 // Why Io reads cleaner than the NewtonScript original:
