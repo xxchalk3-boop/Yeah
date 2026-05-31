@@ -162,11 +162,9 @@ There is no test framework — assertions are implicit: wrong output or an excep
 
 ---
 
-## Known limitation: escape sequences in strings
+## String escape handling
 
-The string scanner in every pass (both the NS original and `run.py`) treats `"` as a plain delimiter with no escape handling. A literal `"\""` in source — a string containing a quote character — will confuse the scanner: it exits string mode at the `\"` character and re-enters at the trailing `"`. This means pass 1 may leave comments unstripped in any block that follows a `"\""` literal.
-
-Inputs that avoid `"\""` (the vast majority of NewtonScript code) are unaffected.
+The string scanners in passes 1 and 3 handle `\"` (escaped quote) and `\\` (escaped backslash). When a `\` is seen inside a string literal, the following character is consumed as part of the string without being treated as a terminator. Other `\x` sequences pass through as-is.
 
 ---
 

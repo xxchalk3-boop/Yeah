@@ -90,7 +90,10 @@ class _Chalkobusf:
                     c = code[i]
                     result += c
                     i += 1
-                    if c == '"':
+                    if c == '\\' and i < n:
+                        result += code[i]
+                        i += 1
+                    elif c == '"':
                         break
             elif ch == '/' and i + 1 < n:
                 nx = code[i + 1]
@@ -156,8 +159,14 @@ class _Chalkobusf:
                     if c == '"':
                         i += 1
                         break
-                    content += c
-                    i += 1
+                    elif c == '\\' and i + 1 < n:
+                        i += 1
+                        esc = code[i]
+                        content += esc if esc in ('"', '\\') else esc
+                        i += 1
+                    else:
+                        content += c
+                        i += 1
                 result += self._split_and_encode(content)
             else:
                 result += ch
