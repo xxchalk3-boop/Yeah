@@ -2,16 +2,27 @@
 
 ## What this project is
 
-`chalkobusf` is a NewtonScript source-code obfuscator written entirely in NewtonScript. It takes a string of NewtonScript source and runs it through up to six transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
+`chalkobusf` is a NewtonScript source-code obfuscator. It takes a string of NewtonScript source and runs it through up to eight transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
+
+The obfuscator exists in **three implementations that produce byte-identical output**:
+
+1. **NewtonScript** (`src/chalkobusf.ns`) — the original reference implementation.
+2. **Io** (`src/chalkobusf.io`) — a native [Io language](https://iolanguage.org) port; the cleanest of the three because Io's `seq at(i)` returns a character code directly, so the NS idiom `Ord(SubStr(s, i, 1))` collapses to `src at(i)`.
+3. **Python** (`run.py`) — the CLI runner and the basis of the standalone executable.
 
 The codebase files:
 
 ```
 src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
-tests/basic.ns      — smoke tests, one per pass + a full-pipeline test
+src/chalkobusf.io   — the obfuscator, native Io port (single Object clone)
+tests/basic.ns      — NewtonScript smoke tests (one per pass + full pipeline)
+tests/basic.io      — Io test suite, 22 explicit assertions (run: io tests/basic.io)
 run.py              — Python CLI runner (faithful port of the NS logic)
+run.io              — Io CLI runner (same flags as run.py)
 .gitignore          — excludes PyInstaller build artifacts (dist/, build/, *.spec)
 ```
+
+**Equivalence is verified, not assumed.** The Io and Python runners are cross-checked to produce identical output byte-for-byte across every pass and the full pipeline, including on the obfuscator's own 14 KB source. If you change one implementation, change the others to match and re-run the cross-check (see *Running tests*).
 
 ---
 
@@ -39,7 +50,38 @@ Built-in functions used here: `Ord(ch)`, `SubStr(s, start, len)`, `StrLen(s)`, `
 
 ---
 
-## The six obfuscation passes
+## Io language primer
+
+Io is a prototype-based, message-passing language. Everything is a message sent to a receiver. Key syntax as used in `src/chalkobusf.io`:
+
+| Construct | Syntax | Notes |
+|---|---|---|
+| New slot / variable | `x := value` | `setSlot` |
+| Reassign existing | `x = value` | `updateSlot` (searches proto chain) |
+| Object / prototype | `Obj := Object clone do( … )` | slots defined inside `do(...)` |
+| Method | `m := method(a, b, body…)` | last expression is the return value |
+| Method call | `obj m(arg)` or `self m(arg)` | parens optional for zero args |
+| Conditional | `if(cond, thenExpr, elseExpr)` | nest for `else if`; multi-statement branches wrapped in `( … )` |
+| While | `while(cond, body…)` | |
+| Infinite loop | `loop( … break )` | used for the repeat-until in `genName` |
+| String concat | `a .. b` | |
+| Char code at index | `s at(i)` | **returns a Number** — replaces NS `Ord(SubStr(s,i,1))` |
+| Code → 1-char string | `code asCharacter` | |
+| Substring | `s exSlice(start, end)` | end-exclusive; replaces NS `SubStr` |
+| String length | `s size` | |
+| Number → string | `n asString` | integers print without a decimal point |
+| Integer division | `(a / b) floor` | `/` is float division |
+| Modulo | `a % b` | |
+| List | `list()`, `l append(x)`, `l at(i)`, `l size` | used for the rename `mappings` |
+| Map (opts) | `Map clone atPut(k, v)`, `m at(k)`, `m hasKey(k)` | missing key → `nil` |
+| Nil / false | `nil`, `false` | both falsy in `if`; everything else truthy |
+| Boolean | `a and b`, `a or b`, `x not`, `x isNil` | |
+
+The `chalkobusf` Io object is a single `Object clone do( … )` with the same two mutable state slots (`_counter`, `_junkPhase`) and the same method names (camelCased: `stripComments`, `obfuscateNumbers`, …) as the NS frame.
+
+---
+
+## The eight obfuscation passes
 
 Passes are applied in this fixed order inside `chalkobusf:Obfuscate(code, opts)`:
 
@@ -93,19 +135,29 @@ chalkobusf := {
 
 ## Entry point API
 
+NewtonScript:
 ```newtonscript
 local opts := {
-  stripComments: true,
-  minifySpace:   true,
-  encodeStrings: true,
-  obfuscateNums: true,
-  renameVars:    true,
-  addJunk:       true,
+  stripComments: true, minifySpace:   true,
+  encodeStrings: true, obfuscateNums: true,
+  deepNums:      true, renameVars:    true,
+  obfuscateNils: true, addJunk:       true,
 };
 local result := chalkobusf:Obfuscate(sourceCode, opts);
 ```
 
-Any slot absent or set to `nil` skips that pass. Truthy value (including `true`) enables it.
+Io (opts is a `Map`):
+```io
+opts := Map clone do(
+  atPut("stripComments", true); atPut("minifySpace",   true)
+  atPut("encodeStrings", true); atPut("obfuscateNums", true)
+  atPut("deepNums",      true); atPut("renameVars",    true)
+  atPut("obfuscateNils", true); atPut("addJunk",       true)
+)
+result := chalkobusf obfuscate(sourceCode, opts)
+```
+
+Any key absent or set to `nil` skips that pass. Truthy value (including `true`) enables it.
 
 `Obfuscate` resets `_counter` and `_junkPhase` to 0 at the start of each call, so repeated calls are deterministic.
 
@@ -113,26 +165,29 @@ Any slot absent or set to `nil` skips that pass. Truthy value (including `true`)
 
 ## Running the obfuscator
 
-No Newton environment is required. `run.py` is a faithful Python port of the NS logic and works as a command-line tool.
+There are two interchangeable command-line runners — `run.py` (Python) and `run.io` (Io). **They accept the same flags and produce identical output.** No Newton environment is required for either.
 
-**All passes (default):**
+**With Python** (no extra install needed):
 ```
-python3 run.py src/chalkobusf.ns
-```
-
-**Selective passes:**
-```
+python3 run.py src/chalkobusf.ns                        # all passes (default)
 python3 run.py --strip-comments --minify src/chalkobusf.ns
+python3 run.py src/chalkobusf.ns -o obfuscated.ns       # write to a file
+cat src/chalkobusf.ns | python3 run.py --all            # read from stdin
 ```
 
-**Write to a file:**
+**With Io** (requires the `io` interpreter — see below):
 ```
-python3 run.py src/chalkobusf.ns -o obfuscated.ns
+io run.io src/chalkobusf.ns                             # all passes (default)
+io run.io --strip-comments --minify src/chalkobusf.ns
+io run.io src/chalkobusf.ns -o obfuscated.ns
+cat src/chalkobusf.ns | io run.io --all
 ```
 
-**Pipe from stdin:**
+There is no Io package in apt/pip; build the interpreter from source (a few minutes):
 ```
-cat src/chalkobusf.ns | python3 run.py --all
+git clone --depth 1 https://github.com/IoLanguage/io.git
+cd io && mkdir build && cd build && cmake .. && make -j4
+# binary lands at  build/_build/binaries/io
 ```
 
 **Available flags** (omitting all flags enables `--all`):
@@ -174,19 +229,27 @@ cat src/chalkobusf.ns | ./dist/chalkobusf --strip-comments --minify
 
 ## Running tests
 
+**Io test suite** (the primary, runnable test suite — 22 explicit assertions):
+```
+io tests/basic.io
+```
+Loads `src/chalkobusf.io`, exercises each pass with a focused fixture, checks `genName` hex rollover and junk rotation, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
+
 **NS tests** (require a Newton environment or compatible interpreter):
 ```
 Load("tests/basic.ns");
 ```
-The test file loads `src/chalkobusf.ns` itself and exercises each pass with a focused fixture, then runs the full pipeline.
+Loads `src/chalkobusf.ns` itself and exercises each pass, then the full pipeline. No assertion framework — wrong output or an exception means failure.
 
-**Python verification** (no NS environment needed — mirrors all NS logic):
+**Cross-implementation check** (proves Io ≡ Python byte-for-byte). Run each flag through both runners and diff:
 ```
-python3 /tmp/verify_chalkobusf.py   # after copying from /tmp, or run inline
+for p in --strip-comments --minify --encode-strings --obfuscate-nums \
+         --rename-vars --add-junk --deep-nums --obfuscate-nils --all; do
+  cmp -s <(python3 run.py $p src/chalkobusf.ns) \
+         <(io run.io $p src/chalkobusf.ns) && echo "MATCH $p" || echo "DRIFT $p"
+done
 ```
-37 assertions covering every pass individually and the full pipeline.
-
-There is no test framework — assertions are implicit: wrong output or an exception means failure.
+Any `DRIFT` means the implementations diverged — fix before committing.
 
 ---
 
@@ -210,10 +273,14 @@ The string scanners in passes 1 and 3 handle `\"` (escaped quote) and `\\` (esca
 
 ## Adding a new pass
 
-1. Add a new method slot to the `chalkobusf` frame with a comma after the previous last slot.
-2. Add a corresponding `opts` key name (document it in the header comment block at the top of `chalkobusf.ns`).
-3. Add an `if opts.yourKey then result := self:YourPass(result);` line in `Obfuscate`, in the intended pipeline position.
-4. Add a focused test fixture in `tests/basic.ns`.
+A new pass must land in **all three implementations** so they stay byte-identical. For each of `src/chalkobusf.ns`, `src/chalkobusf.io`, and `run.py`:
+
+1. Add the new pass method (NS frame slot with trailing comma / Io `method` inside `do(...)` / Python method).
+2. Add a corresponding `opts` key and document it in the header comment block.
+3. Add the `if opts.yourKey then result := self:YourPass(result);` (or the Io / Python equivalent) line in `Obfuscate`/`obfuscate`, in the intended pipeline position.
+4. For `run.py`, also add the `--your-flag` argparse entry and wire it into the `opts` dict and the `explicit`/`use_all` logic.
+
+Then add a fixture to `tests/basic.io`, run `io tests/basic.io`, and run the cross-implementation check (see *Running tests*) to confirm Io and Python still agree.
 
 ---
 
