@@ -10,6 +10,7 @@ The codebase files:
 src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
 tests/basic.ns      — smoke tests, one per pass + a full-pipeline test
 run.py              — Python CLI runner (faithful port of the NS logic)
+.gitignore          — excludes PyInstaller build artifacts (dist/, build/, *.spec)
 ```
 
 ---
@@ -44,16 +45,18 @@ Passes are applied in this fixed order inside `chalkobusf:Obfuscate(code, opts)`
 
 | # | Slot key | Function | What it does |
 |---|---|---|---|
-| 1 | `stripComments` | `StripComments` | Removes `//` line comments and `/* */` block comments; skips string literals verbatim |
+| 1 | `stripComments` | `StripComments` | Removes `//` line comments and `/* */` block comments; skips string literals verbatim (escape-aware) |
 | 2 | `minifySpace` | `MinifyWhitespace` | Collapses every run of whitespace to a single space |
-| 3 | `encodeStrings` | `EncodeStrings` | Replaces `"literal"` with a `Char(N) & Char(M) & …` chain; splits each string at its midpoint for extra noise |
+| 3 | `encodeStrings` | `EncodeStrings` | Replaces `"literal"` with a `Char(N) & Char(M) & …` chain; splits each string at its midpoint for extra noise; handles `\"` and `\\` escape sequences |
 | 4 | `obfuscateNums` | `ObfuscateNumbers` | Replaces integer `N` with `(a + b)` where `a = N div 2`, `b = N - a`; skips digit runs that follow an identifier character so generated names like `_0x1a` are never corrupted |
 | 5 | `renameVars` | `RenameLocals` | Renames every `local` variable to a `_0xN` hex-style identifier; scans declarations first, then rewrites references via the same `mappings` array |
 | 6 | `addJunk` | `InjectJunk` | Prepends one of three rotating dead-code snippets (unreachable `Print`, never-running `while`, always-skipped `if nil`) |
+| 7 | `deepNums` | `DeepObfuscateNumbers` | Runs `ObfuscateNumbers` three times so numbers become nested arithmetic trees: `42 → (21+21) → ((10+11)+(10+11)) → …` |
+| 8 | `obfuscateNils` | `ObfuscateNils` | Replaces every standalone `nil` token with `(0 > 1)` — semantically identical but unreadable; skips string literals and partial identifiers like `nilCount` |
 
-**Order matters.** Pass 4 must run after pass 5 OR after pass 3, not between them in a way that breaks generated names. As implemented, the pipeline is safe: passes 1–6 in sequence.
+**Order matters.** Pass 7 (`deepNums`) runs after pass 4 so it can further nest the `(a + b)` expressions that pass 4 introduced. Pass 8 (`obfuscateNils`) runs after pass 5 so renamed `_0xN` variables (which contain digits, not `nil`) are not affected. The full safe sequence is passes 1 → 8.
 
-Each pass is also callable in isolation for testing (`chalkobusf:StripComments(src)`, etc.).
+Each pass is also callable in isolation (`chalkobusf:StripComments(src)`, etc.).
 
 ---
 
@@ -72,12 +75,14 @@ chalkobusf := {
   GenName,             // returns _0x0, _0x1, _0x2, …
   FindMapping,         // linear search in [[oldName, newName], …]
 
-  // Passes 1–6
+  // Passes 1–8
   StripComments, MinifyWhitespace,
   EncodeStr, SplitAndEncode, EncodeStrings,
   ObfuscateNumber, ObfuscateNumbers,
   RenameLocals,
   MakeJunk, InjectJunk,
+  DeepObfuscateNumbers,
+  ObfuscateNils,
 
   // Entry point
   Obfuscate,           // resets state, applies selected passes in order
@@ -140,7 +145,30 @@ cat src/chalkobusf.ns | python3 run.py --all
 | `--obfuscate-nums` | 4 — split integers into `(a + b)` |
 | `--rename-vars` | 5 — rename locals to `_0xN` names |
 | `--add-junk` | 6 — prepend dead-code block |
-| `--all` | all six passes |
+| `--deep-nums` | 7 — 3 rounds of number obfuscation (nested trees) |
+| `--obfuscate-nils` | 8 — replace `nil` tokens with `(0 > 1)` |
+| `--all` | all eight passes |
+
+---
+
+## Building a standalone executable
+
+`run.py` can be bundled into a single self-contained binary (no Python installation required) using [PyInstaller](https://pyinstaller.org):
+
+```
+pip install pyinstaller
+pyinstaller --onefile --name chalkobusf run.py
+```
+
+The binary is written to `dist/chalkobusf` (Linux/macOS) or `dist\chalkobusf.exe` (Windows). It accepts the same flags as the Python script:
+
+```
+./dist/chalkobusf src/chalkobusf.ns
+./dist/chalkobusf --all src/chalkobusf.ns -o out.ns
+cat src/chalkobusf.ns | ./dist/chalkobusf --strip-comments --minify
+```
+
+`dist/`, `build/`, and `*.spec` are listed in `.gitignore` — do not commit them.
 
 ---
 

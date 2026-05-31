@@ -15,7 +15,9 @@ Pass flags (default: --all):
   --obfuscate-nums   Pass 4 — replace integers with (a + b) split expressions
   --rename-vars      Pass 5 — rename locals to _0xN generated names
   --add-junk         Pass 6 — prepend rotating dead-code block
-  --all              enable all six passes (used when no pass flag given)
+  --deep-nums        Pass 7 — 3 rounds of number obfuscation (nested trees)
+  --obfuscate-nils   Pass 8 — replace nil with (0 > 1)
+  --all              enable all eight passes (used when no pass flag given)
 
 Examples:
   python3 run.py src/chalkobusf.ns
@@ -246,6 +248,48 @@ class _Chalkobusf:
     def inject_junk(self, code):
         return self._make_junk() + code
 
+    # ── Pass 7: Deep number obfuscation ───────────────────────────────────────
+
+    def deep_obfuscate_numbers(self, code, rounds=3):
+        result = code
+        for _ in range(rounds):
+            result = self.obfuscate_numbers(result)
+        return result
+
+    # ── Pass 8: Nil obfuscation ────────────────────────────────────────────────
+
+    def obfuscate_nils(self, code):
+        result = ""
+        i = 0
+        n = len(code)
+        while i < n:
+            ch = code[i]
+            if ch == '"':
+                result += ch
+                i += 1
+                while i < n:
+                    c = code[i]
+                    result += c
+                    i += 1
+                    if c == '\\' and i < n:
+                        result += code[i]
+                        i += 1
+                    elif c == '"':
+                        break
+            elif code[i:i+3] == 'nil':
+                before = i == 0 or not self._is_ident_char(code[i - 1])
+                after  = i + 3 >= n or not self._is_ident_char(code[i + 3])
+                if before and after:
+                    result += '(0 > 1)'
+                    i += 3
+                else:
+                    result += ch
+                    i += 1
+            else:
+                result += ch
+                i += 1
+        return result
+
     # ── Main pipeline ──────────────────────────────────────────────────────────
 
     def obfuscate(self, code, opts):
@@ -256,7 +300,9 @@ class _Chalkobusf:
         if opts.get('minifySpace'):    result = self.minify_whitespace(result)
         if opts.get('encodeStrings'):  result = self.encode_strings(result)
         if opts.get('obfuscateNums'):  result = self.obfuscate_numbers(result)
+        if opts.get('deepNums'):       result = self.deep_obfuscate_numbers(result)
         if opts.get('renameVars'):     result = self.rename_locals(result)
+        if opts.get('obfuscateNils'):  result = self.obfuscate_nils(result)
         if opts.get('addJunk'):        result = self.inject_junk(result)
         return result
 
@@ -287,12 +333,17 @@ def main():
                    help="pass 5: rename local variables to _0xN names")
     g.add_argument("--add-junk",        action="store_true",
                    help="pass 6: prepend rotating dead-code block")
+    g.add_argument("--deep-nums",       action="store_true",
+                   help="pass 7: 3 rounds of number obfuscation (nested trees)")
+    g.add_argument("--obfuscate-nils",  action="store_true",
+                   help="pass 8: replace nil tokens with (0 > 1)")
 
     args = parser.parse_args()
 
     explicit = any([
         args.strip_comments, args.minify, args.encode_strings,
         args.obfuscate_nums, args.rename_vars, args.add_junk,
+        args.deep_nums, args.obfuscate_nils,
     ])
     use_all = args.all or not explicit
 
@@ -301,7 +352,9 @@ def main():
         'minifySpace':   use_all or args.minify,
         'encodeStrings': use_all or args.encode_strings,
         'obfuscateNums': use_all or args.obfuscate_nums,
+        'deepNums':      use_all or args.deep_nums,
         'renameVars':    use_all or args.rename_vars,
+        'obfuscateNils': use_all or args.obfuscate_nils,
         'addJunk':       use_all or args.add_junk,
     }
 
