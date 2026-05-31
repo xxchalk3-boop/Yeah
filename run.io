@@ -8,15 +8,16 @@
 //   io run.io [passes] [FILE] [-o OUTPUT]
 //
 // Pass flags (default: --all):
-//   --strip-comments   Pass 1 — remove // and /* */ comments
-//   --minify           Pass 2 — collapse whitespace runs to a single space
-//   --encode-strings   Pass 3 — replace string literals with Char() chains
-//   --obfuscate-nums   Pass 4 — replace integers with (a + b) split expressions
-//   --rename-vars      Pass 5 — rename locals to _0xN generated names
-//   --add-junk         Pass 6 — prepend rotating dead-code block
-//   --deep-nums        Pass 7 — 3 rounds of number obfuscation (nested trees)
-//   --obfuscate-nils   Pass 8 — replace nil with (0 > 1)
-//   --all              enable all eight passes (used when no pass flag given)
+//   --strip-comments    Pass 1 — remove // and /* */ comments
+//   --minify            Pass 2 — collapse whitespace runs to a single space
+//   --encode-strings    Pass 3 — replace string literals with Char() chains
+//   --obfuscate-nums    Pass 4 — replace integers with (a + b) split expressions
+//   --rename-vars       Pass 5 — rename locals to _0xN generated names
+//   --add-junk          Pass 6 — prepend rotating dead-code block
+//   --deep-nums         Pass 7 — 3 rounds of number obfuscation (nested trees)
+//   --obfuscate-nils    Pass 8 — replace nil with (0 > 1)
+//   --obfuscate-bools   Pass 9 — replace true/(1=1) and false/(1<>1)
+//   --all               enable all nine passes (used when no pass flag given)
 //
 // Examples:
 //   io run.io src/chalkobusf.ns
@@ -34,7 +35,8 @@ flagKeys := Map clone do(
     atPut("--rename-vars",    "renameVars")
     atPut("--add-junk",       "addJunk")
     atPut("--deep-nums",      "deepNums")
-    atPut("--obfuscate-nils", "obfuscateNils")
+    atPut("--obfuscate-nils",  "obfuscateNils")
+    atPut("--obfuscate-bools", "obfuscateBools")
 )
 
 args := System args  // first element is the script path; skip it
@@ -76,14 +78,15 @@ while(i < args size,
 
 if(useAll or (explicit not),
     opts = Map clone do(
-        atPut("stripComments", true)
-        atPut("minifySpace",   true)
-        atPut("encodeStrings", true)
-        atPut("obfuscateNums", true)
-        atPut("deepNums",      true)
-        atPut("renameVars",    true)
-        atPut("obfuscateNils", true)
-        atPut("addJunk",       true)
+        atPut("stripComments",  true)
+        atPut("minifySpace",    true)
+        atPut("encodeStrings",  true)
+        atPut("obfuscateNums",  true)
+        atPut("deepNums",       true)
+        atPut("renameVars",     true)
+        atPut("obfuscateNils",  true)
+        atPut("obfuscateBools", true)
+        atPut("addJunk",        true)
     )
 )
 

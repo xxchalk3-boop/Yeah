@@ -17,7 +17,8 @@ Pass flags (default: --all):
   --add-junk         Pass 6 — prepend rotating dead-code block
   --deep-nums        Pass 7 — 3 rounds of number obfuscation (nested trees)
   --obfuscate-nils   Pass 8 — replace nil with (0 > 1)
-  --all              enable all eight passes (used when no pass flag given)
+  --obfuscate-bools  Pass 9 — replace true/(1=1) and false/(1<>1)
+  --all              enable all nine passes (used when no pass flag given)
 
 Examples:
   python3 run.py src/chalkobusf.ns
@@ -290,20 +291,64 @@ class _Chalkobusf:
                 i += 1
         return result
 
+    # ── Pass 9: Boolean obfuscation ────────────────────────────────────────────
+
+    def obfuscate_booleans(self, code):
+        result = ""
+        i = 0
+        n = len(code)
+        while i < n:
+            ch = code[i]
+            if ch == '"':
+                result += ch
+                i += 1
+                while i < n:
+                    c = code[i]
+                    result += c
+                    i += 1
+                    if c == '\\' and i < n:
+                        result += code[i]
+                        i += 1
+                    elif c == '"':
+                        break
+            elif code[i:i+4] == 'true':
+                before = i == 0 or not self._is_ident_char(code[i - 1])
+                after  = i + 4 >= n or not self._is_ident_char(code[i + 4])
+                if before and after:
+                    result += '(1 = 1)'
+                    i += 4
+                else:
+                    result += ch
+                    i += 1
+            elif code[i:i+5] == 'false':
+                before = i == 0 or not self._is_ident_char(code[i - 1])
+                after  = i + 5 >= n or not self._is_ident_char(code[i + 5])
+                if before and after:
+                    result += '(1 <> 1)'
+                    i += 5
+                else:
+                    result += ch
+                    i += 1
+            else:
+                result += ch
+                i += 1
+        return result
+
     # ── Main pipeline ──────────────────────────────────────────────────────────
 
     def obfuscate(self, code, opts):
         self._counter = 0
         self._junk_phase = 0
         result = code
-        if opts.get('stripComments'):  result = self.strip_comments(result)
-        if opts.get('minifySpace'):    result = self.minify_whitespace(result)
-        if opts.get('encodeStrings'):  result = self.encode_strings(result)
-        if opts.get('obfuscateNums'):  result = self.obfuscate_numbers(result)
-        if opts.get('deepNums'):       result = self.deep_obfuscate_numbers(result)
-        if opts.get('renameVars'):     result = self.rename_locals(result)
-        if opts.get('obfuscateNils'):  result = self.obfuscate_nils(result)
-        if opts.get('addJunk'):        result = self.inject_junk(result)
+        if opts.get('stripComments'):   result = self.strip_comments(result)
+        if opts.get('minifySpace'):     result = self.minify_whitespace(result)
+        if opts.get('encodeStrings'):   result = self.encode_strings(result)
+        if opts.get('obfuscateNums'):   result = self.obfuscate_numbers(result)
+        if opts.get('deepNums'):        result = self.deep_obfuscate_numbers(result)
+        if opts.get('renameVars'):      result = self.rename_locals(result)
+        if opts.get('obfuscateNils'):   result = self.obfuscate_nils(result)
+        if opts.get('obfuscateBools'):  result = self.obfuscate_booleans(result)
+        if opts.get('addJunk'):         result = self.inject_junk(result)
         return result
 
 
@@ -320,7 +365,7 @@ def main():
 
     g = parser.add_argument_group("passes (default: --all)")
     g.add_argument("--all",             action="store_true",
-                   help="enable all six passes")
+                   help="enable all nine passes")
     g.add_argument("--strip-comments",  action="store_true",
                    help="pass 1: strip // and /* */ comments")
     g.add_argument("--minify",          action="store_true",
@@ -337,25 +382,28 @@ def main():
                    help="pass 7: 3 rounds of number obfuscation (nested trees)")
     g.add_argument("--obfuscate-nils",  action="store_true",
                    help="pass 8: replace nil tokens with (0 > 1)")
+    g.add_argument("--obfuscate-bools", action="store_true",
+                   help="pass 9: replace true/(1=1) and false/(1<>1)")
 
     args = parser.parse_args()
 
     explicit = any([
         args.strip_comments, args.minify, args.encode_strings,
         args.obfuscate_nums, args.rename_vars, args.add_junk,
-        args.deep_nums, args.obfuscate_nils,
+        args.deep_nums, args.obfuscate_nils, args.obfuscate_bools,
     ])
     use_all = args.all or not explicit
 
     opts = {
-        'stripComments': use_all or args.strip_comments,
-        'minifySpace':   use_all or args.minify,
-        'encodeStrings': use_all or args.encode_strings,
-        'obfuscateNums': use_all or args.obfuscate_nums,
-        'deepNums':      use_all or args.deep_nums,
-        'renameVars':    use_all or args.rename_vars,
-        'obfuscateNils': use_all or args.obfuscate_nils,
-        'addJunk':       use_all or args.add_junk,
+        'stripComments':  use_all or args.strip_comments,
+        'minifySpace':    use_all or args.minify,
+        'encodeStrings':  use_all or args.encode_strings,
+        'obfuscateNums':  use_all or args.obfuscate_nums,
+        'deepNums':       use_all or args.deep_nums,
+        'renameVars':     use_all or args.rename_vars,
+        'obfuscateNils':  use_all or args.obfuscate_nils,
+        'obfuscateBools': use_all or args.obfuscate_bools,
+        'addJunk':        use_all or args.add_junk,
     }
 
     if args.input:

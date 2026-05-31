@@ -14,14 +14,15 @@
 //     end exclusive), replacing `SubStr(s, start, len)`.
 //
 // Passes (in pipeline order):
-//   1. stripComments       — remove // and /* */ comments
-//   2. minifyWhitespace    — collapse whitespace runs to a single space
-//   3. encodeStrings       — split string literals, encode halves as Char() chains
-//   4. obfuscateNumbers    — replace integer literals with (a + b) split expressions
-//   5. renameLocals        — rename local variables to _0xN generated names
-//   6. injectJunk          — prepend rotating dead-code block
+//   1. stripComments        — remove // and /* */ comments
+//   2. minifyWhitespace     — collapse whitespace runs to a single space
+//   3. encodeStrings        — split string literals, encode halves as Char() chains
+//   4. obfuscateNumbers     — replace integer literals with (a + b) split expressions
+//   5. renameLocals         — rename local variables to _0xN generated names
+//   6. injectJunk           — prepend rotating dead-code block
 //   7. deepObfuscateNumbers — 3 rounds of pass 4 (nested arithmetic trees)
-//   8. obfuscateNils       — replace standalone nil tokens with (0 > 1)
+//   8. obfuscateNils        — replace standalone nil tokens with (0 > 1)
+//   9. obfuscateBooleans    — replace true with (1 = 1), false with (1 <> 1)
 
 chalkobusf := Object clone do(
 
@@ -439,23 +440,95 @@ chalkobusf := Object clone do(
         result
     )
 
+    // ── Pass 9: Boolean obfuscation ──────────────────────────────────────────
+
+    // Replace standalone true with (1 = 1) and false with (1 <> 1).
+    // Skips string literals; guards against partial identifiers like trueValue.
+    obfuscateBooleans := method(src,
+        result := ""
+        i := 0
+        len := src size
+        while(i < len,
+            ch := src at(i)
+            if(ch == 34,
+                (
+                    result = result .. (ch asCharacter)
+                    i = i + 1
+                    inStr := true
+                    while((i < len) and inStr,
+                        c := src at(i)
+                        result = result .. (c asCharacter)
+                        i = i + 1
+                        if(c == 92,
+                            if(i < len,
+                                (
+                                    result = result .. (src at(i) asCharacter)
+                                    i = i + 1
+                                )
+                            ),
+                            if(c == 34, inStr = false)
+                        )
+                    )
+                ),
+                if((i + 4 <= len) and (src exSlice(i, i + 4) == "true"),
+                    (
+                        before := (i == 0) or (self isIdentChar(src at(i - 1)) not)
+                        after  := (i + 4 >= len) or (self isIdentChar(src at(i + 4)) not)
+                        if(before and after,
+                            (
+                                result = result .. "(1 = 1)"
+                                i = i + 4
+                            ),
+                            (
+                                result = result .. (ch asCharacter)
+                                i = i + 1
+                            )
+                        )
+                    ),
+                    if((i + 5 <= len) and (src exSlice(i, i + 5) == "false"),
+                        (
+                            before := (i == 0) or (self isIdentChar(src at(i - 1)) not)
+                            after  := (i + 5 >= len) or (self isIdentChar(src at(i + 5)) not)
+                            if(before and after,
+                                (
+                                    result = result .. "(1 <> 1)"
+                                    i = i + 5
+                                ),
+                                (
+                                    result = result .. (ch asCharacter)
+                                    i = i + 1
+                                )
+                            )
+                        ),
+                        (
+                            result = result .. (ch asCharacter)
+                            i = i + 1
+                        )
+                    )
+                )
+            )
+        )
+        result
+    )
+
     // ── Main pipeline ────────────────────────────────────────────────────────
 
     // opts is a Map; set any key to true to enable that pass (absent/nil skips):
     //   stripComments, minifySpace, encodeStrings, obfuscateNums,
-    //   deepNums, renameVars, obfuscateNils, addJunk
+    //   deepNums, renameVars, obfuscateNils, obfuscateBools, addJunk
     obfuscate := method(src, opts,
         self _counter   = 0
         self _junkPhase = 0
         result := src
-        if(opts at("stripComments"), result = self stripComments(result))
-        if(opts at("minifySpace"),   result = self minifyWhitespace(result))
-        if(opts at("encodeStrings"), result = self encodeStrings(result))
-        if(opts at("obfuscateNums"), result = self obfuscateNumbers(result))
-        if(opts at("deepNums"),      result = self deepObfuscateNumbers(result, 3))
-        if(opts at("renameVars"),    result = self renameLocals(result))
-        if(opts at("obfuscateNils"), result = self obfuscateNils(result))
-        if(opts at("addJunk"),       result = self injectJunk(result))
+        if(opts at("stripComments"),  result = self stripComments(result))
+        if(opts at("minifySpace"),    result = self minifyWhitespace(result))
+        if(opts at("encodeStrings"),  result = self encodeStrings(result))
+        if(opts at("obfuscateNums"),  result = self obfuscateNumbers(result))
+        if(opts at("deepNums"),       result = self deepObfuscateNumbers(result, 3))
+        if(opts at("renameVars"),     result = self renameLocals(result))
+        if(opts at("obfuscateNils"),  result = self obfuscateNils(result))
+        if(opts at("obfuscateBools"), result = self obfuscateBooleans(result))
+        if(opts at("addJunk"),        result = self injectJunk(result))
         result
     )
 )

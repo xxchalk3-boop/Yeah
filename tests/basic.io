@@ -73,7 +73,7 @@ check("P6 phase3 wraps", chalkobusf injectJunk("x;") containsSeq("_j"), true)
 
 // ── Pass 7: deepObfuscateNumbers ─────────────────────────────────────────────
 check("P7 nested 8", chalkobusf deepObfuscateNumbers("8", 3),
-    "(((2 + 2) + (2 + 2)) + ((2 + 2) + (2 + 2)))")
+    "(((1 + 1) + (1 + 1)) + ((1 + 1) + (1 + 1)))")
 
 // ── Pass 8: obfuscateNils ────────────────────────────────────────────────────
 check("P8 nil replaced, nilCount kept",
@@ -82,6 +82,23 @@ check("P8 nil replaced, nilCount kept",
 check("P8 nil inside string untouched",
     chalkobusf obfuscateNils("Print(\"nil\");"),
     "Print(\"nil\");")
+check("P8 nil after string processed",
+    chalkobusf obfuscateNils("Print(\"x\"); local d := nil;"),
+    "Print(\"x\"); local d := (0 > 1);")
+
+// ── Pass 9: obfuscateBooleans ────────────────────────────────────────────────
+check("P9 true replaced",
+    chalkobusf obfuscateBooleans("local x := true;"),
+    "local x := (1 = 1);")
+check("P9 false replaced",
+    chalkobusf obfuscateBooleans("local x := false;"),
+    "local x := (1 <> 1);")
+check("P9 trueValue preserved",
+    chalkobusf obfuscateBooleans("local trueValue := 1;"),
+    "local trueValue := 1;")
+check("P9 true inside string untouched",
+    chalkobusf obfuscateBooleans("Print(\"true\");"),
+    "Print(\"true\");")
 
 // ── Full pipeline determinism ────────────────────────────────────────────────
 opts := Map clone do(
@@ -89,6 +106,7 @@ opts := Map clone do(
     atPut("encodeStrings", true); atPut("obfuscateNums", true)
     atPut("deepNums", true);      atPut("renameVars", true)
     atPut("obfuscateNils", true); atPut("addJunk", true)
+    atPut("obfuscateBools", true)
 )
 src := "// c\nlocal w := 10;\nPrint(\"Area\" & NumberStr(w));"
 check("Full pipeline deterministic",
