@@ -4,11 +4,12 @@
 
 `chalkobusf` is a NewtonScript source-code obfuscator written entirely in NewtonScript. It takes a string of NewtonScript source and runs it through up to six transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
 
-The codebase has exactly two files:
+The codebase files:
 
 ```
-src/chalkobusf.ns   — the obfuscator (single frame object)
+src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
 tests/basic.ns      — smoke tests, one per pass + a full-pipeline test
+run.py              — Python CLI runner (faithful port of the NS logic)
 ```
 
 ---
@@ -105,15 +106,67 @@ Any slot absent or set to `nil` skips that pass. Truthy value (including `true`)
 
 ---
 
+## Running the obfuscator
+
+No Newton environment is required. `run.py` is a faithful Python port of the NS logic and works as a command-line tool.
+
+**All passes (default):**
+```
+python3 run.py src/chalkobusf.ns
+```
+
+**Selective passes:**
+```
+python3 run.py --strip-comments --minify src/chalkobusf.ns
+```
+
+**Write to a file:**
+```
+python3 run.py src/chalkobusf.ns -o obfuscated.ns
+```
+
+**Pipe from stdin:**
+```
+cat src/chalkobusf.ns | python3 run.py --all
+```
+
+**Available flags** (omitting all flags enables `--all`):
+
+| Flag | Pass |
+|---|---|
+| `--strip-comments` | 1 — remove `//` and `/* */` comments |
+| `--minify` | 2 — collapse whitespace |
+| `--encode-strings` | 3 — encode string literals as `Char()` chains |
+| `--obfuscate-nums` | 4 — split integers into `(a + b)` |
+| `--rename-vars` | 5 — rename locals to `_0xN` names |
+| `--add-junk` | 6 — prepend dead-code block |
+| `--all` | all six passes |
+
+---
+
 ## Running tests
 
+**NS tests** (require a Newton environment or compatible interpreter):
 ```
 Load("tests/basic.ns");
 ```
+The test file loads `src/chalkobusf.ns` itself and exercises each pass with a focused fixture, then runs the full pipeline.
 
-Run from the Newton environment or a compatible NS interpreter. The test file calls `Load("src/chalkobusf.ns")` itself. Each pass is exercised with a focused fixture, then the full pipeline runs on a multi-line snippet.
+**Python verification** (no NS environment needed — mirrors all NS logic):
+```
+python3 /tmp/verify_chalkobusf.py   # after copying from /tmp, or run inline
+```
+37 assertions covering every pass individually and the full pipeline.
 
-There is no test framework — assertions are implicit: if a pass throws or produces obviously wrong output, it fails.
+There is no test framework — assertions are implicit: wrong output or an exception means failure.
+
+---
+
+## Known limitation: escape sequences in strings
+
+The string scanner in every pass (both the NS original and `run.py`) treats `"` as a plain delimiter with no escape handling. A literal `"\""` in source — a string containing a quote character — will confuse the scanner: it exits string mode at the `\"` character and re-enters at the trailing `"`. This means pass 1 may leave comments unstripped in any block that follows a `"\""` literal.
+
+Inputs that avoid `"\""` (the vast majority of NewtonScript code) are unaffected.
 
 ---
 
