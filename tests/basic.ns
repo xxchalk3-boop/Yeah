@@ -1,0 +1,24 @@
+// Basic smoke tests for chalkobusf
+
+Load("src/chalkobusf.ns");
+
+// --- EncodeStr ---
+local encoded := chalkobusf:EncodeStr("hi");
+// Expected: Char(104) & Char(105)
+Print("EncodeStr: " & encoded);
+
+// --- EncodeStrings ---
+local src1 := "local x := \"hello\"; Print(x);";
+local out1 := chalkobusf:EncodeStrings(src1);
+Print("EncodeStrings: " & out1);
+
+// --- RenameLocals ---
+local src2 := "local greeting := \"hi\"; local count := 3; Print(greeting);";
+local out2 := chalkobusf:RenameLocals(src2);
+Print("RenameLocals: " & out2);
+
+// --- Full pipeline ---
+local src3 := "local msg := \"Newton rocks\"; local n := 7; Print(msg);";
+local opts := {encodeStrings: true, renameVars: true, addJunk: true};
+local out3 := chalkobusf:Obfuscate(src3, opts);
+Print("Obfuscated: " & out3);

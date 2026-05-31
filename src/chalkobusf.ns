@@ -1,0 +1,193 @@
+// chalkobusf — NewtonScript obfuscator
+// Transforms NewtonScript source code to make it harder to read.
+// Techniques: string-literal encoding, local variable renaming, junk injection.
+
+chalkobusf := {
+
+  _counter: 0,
+
+  // Generate a unique obfuscated identifier like _0x001f
+  GenName: func()
+  begin
+    local n := self._counter;
+    self._counter := self._counter + 1;
+    local hex := "";
+    local tmp := n;
+    repeat
+      local digit := tmp mod 16;
+      if digit < 10 then
+        hex := NumberStr(digit) & hex
+      else
+        hex := SubStr("abcdef", digit - 10, 1) & hex;
+      tmp := tmp div 16;
+    until tmp = 0;
+    "_0x" & hex
+  end,
+
+  // Encode a plain string to a chain of Char() concatenations
+  EncodeStr: func(s)
+  begin
+    local result := "";
+    local len := StrLen(s);
+    if len = 0 then
+    begin
+      result := "\"\"";
+    end
+    else
+    begin
+      local i := 0;
+      while i < len do
+      begin
+        local code := Ord(SubStr(s, i, 1));
+        if i = 0 then
+          result := "Char(" & NumberStr(code) & ")"
+        else
+          result := result & " & Char(" & NumberStr(code) & ")";
+        i := i + 1;
+      end;
+    end;
+    result
+  end,
+
+  // Walk source character-by-character; replace "..." literals with Char() chains
+  EncodeStrings: func(code)
+  begin
+    local result := "";
+    local i := 0;
+    local len := StrLen(code);
+    while i < len do
+    begin
+      local ch := SubStr(code, i, 1);
+      if ch = "\"" then
+      begin
+        local strContent := "";
+        i := i + 1;
+        local done := nil;
+        while i < len and not done do
+        begin
+          local c := SubStr(code, i, 1);
+          if c = "\"" then
+          begin
+            done := true;
+            i := i + 1;
+          end
+          else
+          begin
+            strContent := strContent & c;
+            i := i + 1;
+          end;
+        end;
+        result := result & self:EncodeStr(strContent);
+      end
+      else
+      begin
+        result := result & ch;
+        i := i + 1;
+      end;
+    end;
+    result
+  end,
+
+  // Returns true if ch can start an identifier (letter or _)
+  IsIdentStart: func(ch)
+  begin
+    local c := Ord(ch);
+    (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95
+  end,
+
+  // Returns true if ch can continue an identifier (letter, digit, or _)
+  IsIdentChar: func(ch)
+  begin
+    local c := Ord(ch);
+    (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or
+    (c >= 48 and c <= 57) or c = 95
+  end,
+
+  // Search [[oldName, newName], ...] array; return mapped name or nil
+  FindMapping: func(mappings, name)
+  begin
+    local i := 0;
+    local found := nil;
+    while i < Length(mappings) and not found do
+    begin
+      if mappings[i][0] = name then
+        found := mappings[i][1];
+      i := i + 1;
+    end;
+    found
+  end,
+
+  // Rename every local variable declaration and its uses to a generated name
+  RenameLocals: func(code)
+  begin
+    local mappings := [];
+    local output := "";
+    local i := 0;
+    local len := StrLen(code);
+    while i < len do
+    begin
+      // Detect the keyword "local " (with trailing space)
+      if i + 6 <= len and SubStr(code, i, 6) = "local " then
+      begin
+        i := i + 6;
+        local varName := "";
+        while i < len and self:IsIdentChar(SubStr(code, i, 1)) do
+        begin
+          varName := varName & SubStr(code, i, 1);
+          i := i + 1;
+        end;
+        local mapped := self:FindMapping(mappings, varName);
+        if not mapped then
+        begin
+          mapped := self:GenName();
+          ArrayAddLast(mappings, [varName, mapped]);
+        end;
+        output := output & "local " & mapped;
+      end
+      else if self:IsIdentStart(SubStr(code, i, 1)) then
+      begin
+        // Collect the full identifier
+        local word := "";
+        while i < len and self:IsIdentChar(SubStr(code, i, 1)) do
+        begin
+          word := word & SubStr(code, i, 1);
+          i := i + 1;
+        end;
+        local mapped := self:FindMapping(mappings, word);
+        if mapped then
+          output := output & mapped
+        else
+          output := output & word;
+      end
+      else
+      begin
+        output := output & SubStr(code, i, 1);
+        i := i + 1;
+      end;
+    end;
+    output
+  end,
+
+  // Prepend a never-executed dead-code expression to confuse readers
+  InjectJunk: func(code)
+  begin
+    local junkStr := self:EncodeStr("unreachable");
+    "local _j := 0; if _j > 16384 then Print(" & junkStr & "); " & code
+  end,
+
+  // Main entry point.
+  // opts frame: { encodeStrings: true/nil, renameVars: true/nil, addJunk: true/nil }
+  Obfuscate: func(code, opts)
+  begin
+    self._counter := 0;
+    local result := code;
+    if opts.encodeStrings then
+      result := self:EncodeStrings(result);
+    if opts.renameVars then
+      result := self:RenameLocals(result);
+    if opts.addJunk then
+      result := self:InjectJunk(result);
+    result
+  end,
+
+};
