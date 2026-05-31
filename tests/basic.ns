@@ -2,23 +2,48 @@
 
 Load("src/chalkobusf.ns");
 
-// --- EncodeStr ---
-local encoded := chalkobusf:EncodeStr("hi");
-// Expected: Char(104) & Char(105)
-Print("EncodeStr: " & encoded);
+// ── Pass 1: StripComments ────────────────────────────────────────────────────
+local src1 := "local x := 1; // inline comment
+/* block
+   comment */
+local y := 2;";
+Print("StripComments: " & chalkobusf:StripComments(src1));
 
-// --- EncodeStrings ---
-local src1 := "local x := \"hello\"; Print(x);";
-local out1 := chalkobusf:EncodeStrings(src1);
-Print("EncodeStrings: " & out1);
+// ── Pass 2: MinifyWhitespace ─────────────────────────────────────────────────
+local src2 := "local   x  :=   1 ;";
+Print("Minify: " & chalkobusf:MinifyWhitespace(src2));
 
-// --- RenameLocals ---
-local src2 := "local greeting := \"hi\"; local count := 3; Print(greeting);";
-local out2 := chalkobusf:RenameLocals(src2);
-Print("RenameLocals: " & out2);
+// ── Pass 3: EncodeStrings ────────────────────────────────────────────────────
+local src3 := "local msg := \"Hello, Newton!\"; Print(msg);";
+Print("EncodeStrings: " & chalkobusf:EncodeStrings(src3));
 
-// --- Full pipeline ---
-local src3 := "local msg := \"Newton rocks\"; local n := 7; Print(msg);";
-local opts := {encodeStrings: true, renameVars: true, addJunk: true};
-local out3 := chalkobusf:Obfuscate(src3, opts);
-Print("Obfuscated: " & out3);
+// ── Pass 4: ObfuscateNumbers ─────────────────────────────────────────────────
+local src4 := "local n := 42; local m := 100;";
+Print("ObfuscateNums: " & chalkobusf:ObfuscateNumbers(src4));
+
+// ── Pass 5: RenameLocals ─────────────────────────────────────────────────────
+local src5 := "local greeting := \"hi\"; local count := 3; Print(greeting);";
+Print("RenameLocals: " & chalkobusf:RenameLocals(src5));
+
+// ── Pass 6: InjectJunk (three rotations) ─────────────────────────────────────
+Print("Junk-0: " & chalkobusf:InjectJunk("x := 1;"));
+Print("Junk-1: " & chalkobusf:InjectJunk("x := 1;"));
+Print("Junk-2: " & chalkobusf:InjectJunk("x := 1;"));
+
+// ── Full pipeline ─────────────────────────────────────────────────────────────
+local src6 := "// compute area
+local w := 10; /* width */
+local h := 5;
+local area := w * h;
+Print(\"Area: \" & NumberStr(area));";
+
+local opts := {
+  stripComments:  true,
+  minifySpace:    true,
+  encodeStrings:  true,
+  obfuscateNums:  true,
+  renameVars:     true,
+  addJunk:        true,
+};
+Print("Full pipeline:");
+Print(chalkobusf:Obfuscate(src6, opts));

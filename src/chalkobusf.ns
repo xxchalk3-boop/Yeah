@@ -1,12 +1,59 @@
 // chalkobusf — NewtonScript obfuscator
-// Transforms NewtonScript source code to make it harder to read.
-// Techniques: string-literal encoding, local variable renaming, junk injection.
+// Passes (in pipeline order):
+//   1. StripComments    — remove // and /* */ comments
+//   2. MinifyWhitespace — collapse whitespace runs to a single space
+//   3. EncodeStrings    — split string literals then encode each half as Char() chains
+//   4. ObfuscateNumbers — replace integer literals with (a + b) split expressions
+//   5. RenameLocals     — rename local variables to _0xN generated names
+//   6. InjectJunk       — prepend rotating dead-code block
 
 chalkobusf := {
 
-  _counter: 0,
+  _counter:   0,
+  _junkPhase: 0,
 
-  // Generate a unique obfuscated identifier like _0x001f
+  // ── Utilities ─────────────────────────────────────────────────────────────
+
+  IsIdentStart: func(ch)
+  begin
+    local c := Ord(ch);
+    (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95
+  end,
+
+  IsIdentChar: func(ch)
+  begin
+    local c := Ord(ch);
+    (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or
+    (c >= 48 and c <= 57) or c = 95
+  end,
+
+  IsDigit: func(ch)
+  begin
+    local c := Ord(ch);
+    c >= 48 and c <= 57
+  end,
+
+  IsWhitespace: func(ch)
+  begin
+    local c := Ord(ch);
+    c = 32 or c = 9 or c = 10 or c = 13
+  end,
+
+  // Parse a decimal digit string into an integer without relying on a built-in
+  ParseInt: func(s)
+  begin
+    local n := 0;
+    local i := 0;
+    local len := StrLen(s);
+    while i < len do
+    begin
+      n := n * 10 + (Ord(SubStr(s, i, 1)) - 48);
+      i := i + 1;
+    end;
+    n
+  end,
+
+  // Generate the next obfuscated identifier: _0x0, _0x1, …, _0xff, _0x100, …
   GenName: func()
   begin
     local n := self._counter;
@@ -24,17 +71,123 @@ chalkobusf := {
     "_0x" & hex
   end,
 
-  // Encode a plain string to a chain of Char() concatenations
-  EncodeStr: func(s)
+  // Search [[oldName, newName], …]; return the mapped name or nil
+  FindMapping: func(mappings, name)
+  begin
+    local i := 0;
+    local found := nil;
+    while i < Length(mappings) and not found do
+    begin
+      if mappings[i][0] = name then
+        found := mappings[i][1];
+      i := i + 1;
+    end;
+    found
+  end,
+
+  // ── Pass 1: Strip comments ────────────────────────────────────────────────
+
+  StripComments: func(code)
   begin
     local result := "";
+    local i := 0;
+    local len := StrLen(code);
+    while i < len do
+    begin
+      local ch := SubStr(code, i, 1);
+      if ch = "\"" then
+      begin
+        // Copy string literal verbatim — do not strip inside it
+        result := result & ch;
+        i := i + 1;
+        local done := nil;
+        while i < len and not done do
+        begin
+          local c := SubStr(code, i, 1);
+          result := result & c;
+          i := i + 1;
+          if c = "\"" then done := true;
+        end;
+      end
+      else if ch = "/" and i + 1 < len then
+      begin
+        local next := SubStr(code, i + 1, 1);
+        if next = "/" then
+        begin
+          i := i + 2;
+          while i < len and Ord(SubStr(code, i, 1)) <> 10 do
+            i := i + 1;
+        end
+        else if next = "*" then
+        begin
+          i := i + 2;
+          local closed := nil;
+          while i + 1 < len and not closed do
+          begin
+            if SubStr(code, i, 1) = "*" and SubStr(code, i + 1, 1) = "/" then
+            begin
+              i := i + 2;
+              closed := true;
+            end
+            else
+              i := i + 1;
+          end;
+        end
+        else
+        begin
+          result := result & ch;
+          i := i + 1;
+        end;
+      end
+      else
+      begin
+        result := result & ch;
+        i := i + 1;
+      end;
+    end;
+    result
+  end,
+
+  // ── Pass 2: Collapse whitespace ───────────────────────────────────────────
+
+  MinifyWhitespace: func(code)
+  begin
+    local result := "";
+    local i := 0;
+    local len := StrLen(code);
+    local wasSpace := nil;
+    while i < len do
+    begin
+      local ch := SubStr(code, i, 1);
+      if self:IsWhitespace(ch) then
+      begin
+        if not wasSpace then
+        begin
+          result := result & " ";
+          wasSpace := true;
+        end;
+      end
+      else
+      begin
+        result := result & ch;
+        wasSpace := nil;
+      end;
+      i := i + 1;
+    end;
+    result
+  end,
+
+  // ── Pass 3: String encoding ───────────────────────────────────────────────
+
+  // Encode one raw string as a Char() chain: Char(72) & Char(105) & …
+  EncodeStr: func(s)
+  begin
     local len := StrLen(s);
     if len = 0 then
-    begin
-      result := "\"\"";
-    end
+      "\"\""
     else
     begin
+      local result := "";
       local i := 0;
       while i < len do
       begin
@@ -45,11 +198,24 @@ chalkobusf := {
           result := result & " & Char(" & NumberStr(code) & ")";
         i := i + 1;
       end;
-    end;
-    result
+      result
+    end
   end,
 
-  // Walk source character-by-character; replace "..." literals with Char() chains
+  // Split s at its midpoint then encode each half separately for extra noise
+  SplitAndEncode: func(s)
+  begin
+    local len := StrLen(s);
+    if len <= 1 then
+      self:EncodeStr(s)
+    else
+    begin
+      local mid := len div 2;
+      self:EncodeStr(SubStr(s, 0, mid)) & " & " &
+      self:EncodeStr(SubStr(s, mid, len - mid))
+    end
+  end,
+
   EncodeStrings: func(code)
   begin
     local result := "";
@@ -77,7 +243,7 @@ chalkobusf := {
             i := i + 1;
           end;
         end;
-        result := result & self:EncodeStr(strContent);
+        result := result & self:SplitAndEncode(strContent);
       end
       else
       begin
@@ -88,36 +254,50 @@ chalkobusf := {
     result
   end,
 
-  // Returns true if ch can start an identifier (letter or _)
-  IsIdentStart: func(ch)
+  // ── Pass 4: Number obfuscation ────────────────────────────────────────────
+
+  // Replace integer N with (a + b) where a = N div 2, b = N - a
+  ObfuscateNumber: func(n)
   begin
-    local c := Ord(ch);
-    (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 95
+    local a := n div 2;
+    local b := n - a;
+    "(" & NumberStr(a) & " + " & NumberStr(b) & ")"
   end,
 
-  // Returns true if ch can continue an identifier (letter, digit, or _)
-  IsIdentChar: func(ch)
+  ObfuscateNumbers: func(code)
   begin
-    local c := Ord(ch);
-    (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or
-    (c >= 48 and c <= 57) or c = 95
-  end,
-
-  // Search [[oldName, newName], ...] array; return mapped name or nil
-  FindMapping: func(mappings, name)
-  begin
+    local result := "";
     local i := 0;
-    local found := nil;
-    while i < Length(mappings) and not found do
+    local len := StrLen(code);
+    local prevWasIdent := nil;
+    while i < len do
     begin
-      if mappings[i][0] = name then
-        found := mappings[i][1];
-      i := i + 1;
+      local ch := SubStr(code, i, 1);
+      // Only rewrite a digit run that does not follow an identifier character
+      // (avoids breaking _0x1a-style generated names inserted by earlier passes)
+      if self:IsDigit(ch) and not prevWasIdent then
+      begin
+        local numStr := "";
+        while i < len and self:IsDigit(SubStr(code, i, 1)) do
+        begin
+          numStr := numStr & SubStr(code, i, 1);
+          i := i + 1;
+        end;
+        result := result & self:ObfuscateNumber(self:ParseInt(numStr));
+        prevWasIdent := nil;
+      end
+      else
+      begin
+        result := result & ch;
+        prevWasIdent := self:IsIdentChar(ch);
+        i := i + 1;
+      end;
     end;
-    found
+    result
   end,
 
-  // Rename every local variable declaration and its uses to a generated name
+  // ── Pass 5: Variable renaming ─────────────────────────────────────────────
+
   RenameLocals: func(code)
   begin
     local mappings := [];
@@ -126,7 +306,6 @@ chalkobusf := {
     local len := StrLen(code);
     while i < len do
     begin
-      // Detect the keyword "local " (with trailing space)
       if i + 6 <= len and SubStr(code, i, 6) = "local " then
       begin
         i := i + 6;
@@ -146,7 +325,6 @@ chalkobusf := {
       end
       else if self:IsIdentStart(SubStr(code, i, 1)) then
       begin
-        // Collect the full identifier
         local word := "";
         while i < len and self:IsIdentChar(SubStr(code, i, 1)) do
         begin
@@ -168,25 +346,50 @@ chalkobusf := {
     output
   end,
 
-  // Prepend a never-executed dead-code expression to confuse readers
-  InjectJunk: func(code)
+  // ── Pass 6: Junk injection ────────────────────────────────────────────────
+
+  // Three rotating dead-code patterns; cycles each time InjectJunk is called
+  MakeJunk: func()
   begin
-    local junkStr := self:EncodeStr("unreachable");
-    "local _j := 0; if _j > 16384 then Print(" & junkStr & "); " & code
+    local p := self._junkPhase mod 3;
+    self._junkPhase := self._junkPhase + 1;
+    if p = 0 then
+      // Unreachable Print
+      "local _j := (0 + 0); if _j > 16384 then Print(" &
+        self:EncodeStr("dead") & "); "
+    else if p = 1 then
+      // Infinite-condition while that never runs
+      "local _k := 1; while _k < 0 do _k := _k + 1; "
+    else
+      // if nil branch — always skipped
+      "if nil then begin local _z := (0 + 0); end; "
   end,
 
-  // Main entry point.
-  // opts frame: { encodeStrings: true/nil, renameVars: true/nil, addJunk: true/nil }
+  InjectJunk: func(code)
+  begin
+    self:MakeJunk() & code
+  end,
+
+  // ── Main pipeline ─────────────────────────────────────────────────────────
+
+  // opts frame (set any slot to true to enable that pass; nil/absent = skip):
+  //   stripComments   — pass 1
+  //   minifySpace     — pass 2
+  //   encodeStrings   — pass 3
+  //   obfuscateNums   — pass 4
+  //   renameVars      — pass 5
+  //   addJunk         — pass 6
   Obfuscate: func(code, opts)
   begin
-    self._counter := 0;
+    self._counter   := 0;
+    self._junkPhase := 0;
     local result := code;
-    if opts.encodeStrings then
-      result := self:EncodeStrings(result);
-    if opts.renameVars then
-      result := self:RenameLocals(result);
-    if opts.addJunk then
-      result := self:InjectJunk(result);
+    if opts.stripComments  then result := self:StripComments(result);
+    if opts.minifySpace    then result := self:MinifyWhitespace(result);
+    if opts.encodeStrings  then result := self:EncodeStrings(result);
+    if opts.obfuscateNums  then result := self:ObfuscateNumbers(result);
+    if opts.renameVars     then result := self:RenameLocals(result);
+    if opts.addJunk        then result := self:InjectJunk(result);
     result
   end,
 
