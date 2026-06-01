@@ -2,7 +2,7 @@
 
 ## What this project is
 
-`chalkobusf` is a NewtonScript source-code obfuscator. It takes a string of NewtonScript source and runs it through up to eight transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
+`chalkobusf` is a NewtonScript source-code obfuscator. It takes a string of NewtonScript source and runs it through up to nine transformation passes, returning obfuscated source that is semantically equivalent but hard to read.
 
 The obfuscator exists in **three implementations that produce byte-identical output**:
 
@@ -16,9 +16,12 @@ The codebase files:
 src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
 src/chalkobusf.io   — the obfuscator, native Io port (single Object clone)
 tests/basic.ns      — NewtonScript smoke tests (one per pass + full pipeline)
-tests/basic.io      — Io test suite, 22 explicit assertions (run: io tests/basic.io)
+tests/basic.io      — Io test suite, 30 explicit assertions (run: io tests/basic.io)
+tests/basic.py      — Python test suite, 30 explicit assertions (run: python3 tests/basic.py)
 run.py              — Python CLI runner (faithful port of the NS logic)
 run.io              — Io CLI runner (same flags as run.py)
+app.py              — zero-dependency web UI (uses Python's built-in http.server)
+README.md           — project landing page with quick start, passes table, and examples
 .gitignore          — excludes PyInstaller build artifacts (dist/, build/, *.spec)
 ```
 
@@ -81,7 +84,7 @@ The `chalkobusf` Io object is a single `Object clone do( … )` with the same tw
 
 ---
 
-## The eight obfuscation passes
+## The nine obfuscation passes
 
 Passes are applied in this fixed order inside `chalkobusf:Obfuscate(code, opts)`:
 
@@ -95,8 +98,9 @@ Passes are applied in this fixed order inside `chalkobusf:Obfuscate(code, opts)`
 | 6 | `addJunk` | `InjectJunk` | Prepends one of three rotating dead-code snippets (unreachable `Print`, never-running `while`, always-skipped `if nil`) |
 | 7 | `deepNums` | `DeepObfuscateNumbers` | Runs `ObfuscateNumbers` three times so numbers become nested arithmetic trees: `42 → (21+21) → ((10+11)+(10+11)) → …` |
 | 8 | `obfuscateNils` | `ObfuscateNils` | Replaces every standalone `nil` token with `(0 > 1)` — semantically identical but unreadable; skips string literals and partial identifiers like `nilCount` |
+| 9 | `obfuscateBools` | `ObfuscateBooleans` | Replaces standalone `true` with `(1 = 1)` and `false` with `(1 <> 1)`; skips string literals and partial identifiers like `trueValue` |
 
-**Order matters.** Pass 7 (`deepNums`) runs after pass 4 so it can further nest the `(a + b)` expressions that pass 4 introduced. Pass 8 (`obfuscateNils`) runs after pass 5 so renamed `_0xN` variables (which contain digits, not `nil`) are not affected. The full safe sequence is passes 1 → 8.
+**Order matters.** Pass 7 (`deepNums`) runs after pass 4 so it can further nest the `(a + b)` expressions that pass 4 introduced. Passes 8 and 9 run after pass 5 so renamed `_0xN` variables are not affected. Pass 6 (`addJunk`) is always last since it prepends new code that should not be transformed. The full safe sequence is passes 1 → 9.
 
 Each pass is also callable in isolation (`chalkobusf:StripComments(src)`, etc.).
 
@@ -117,7 +121,7 @@ chalkobusf := {
   GenName,             // returns _0x0, _0x1, _0x2, …
   FindMapping,         // linear search in [[oldName, newName], …]
 
-  // Passes 1–8
+  // Passes 1–9
   StripComments, MinifyWhitespace,
   EncodeStr, SplitAndEncode, EncodeStrings,
   ObfuscateNumber, ObfuscateNumbers,
@@ -125,6 +129,7 @@ chalkobusf := {
   MakeJunk, InjectJunk,
   DeepObfuscateNumbers,
   ObfuscateNils,
+  ObfuscateBooleans,
 
   // Entry point
   Obfuscate,           // resets state, applies selected passes in order
@@ -138,10 +143,11 @@ chalkobusf := {
 NewtonScript:
 ```newtonscript
 local opts := {
-  stripComments: true, minifySpace:   true,
-  encodeStrings: true, obfuscateNums: true,
-  deepNums:      true, renameVars:    true,
-  obfuscateNils: true, addJunk:       true,
+  stripComments: true, minifySpace:    true,
+  encodeStrings: true, obfuscateNums:  true,
+  deepNums:      true, renameVars:     true,
+  obfuscateNils: true, obfuscateBools: true,
+  addJunk:       true,
 };
 local result := chalkobusf:Obfuscate(sourceCode, opts);
 ```
@@ -149,10 +155,11 @@ local result := chalkobusf:Obfuscate(sourceCode, opts);
 Io (opts is a `Map`):
 ```io
 opts := Map clone do(
-  atPut("stripComments", true); atPut("minifySpace",   true)
-  atPut("encodeStrings", true); atPut("obfuscateNums", true)
-  atPut("deepNums",      true); atPut("renameVars",    true)
-  atPut("obfuscateNils", true); atPut("addJunk",       true)
+  atPut("stripComments",  true); atPut("minifySpace",    true)
+  atPut("encodeStrings",  true); atPut("obfuscateNums",  true)
+  atPut("deepNums",       true); atPut("renameVars",     true)
+  atPut("obfuscateNils",  true); atPut("obfuscateBools", true)
+  atPut("addJunk",        true)
 )
 result := chalkobusf obfuscate(sourceCode, opts)
 ```
@@ -160,6 +167,21 @@ result := chalkobusf obfuscate(sourceCode, opts)
 Any key absent or set to `nil` skips that pass. Truthy value (including `true`) enables it.
 
 `Obfuscate` resets `_counter` and `_junkPhase` to 0 at the start of each call, so repeated calls are deterministic.
+
+---
+
+## Web UI
+
+`app.py` serves a single-page browser interface backed by `_Chalkobusf` from `run.py`. No extra packages required.
+
+```sh
+python3 app.py                          # opens http://127.0.0.1:5000 automatically
+python3 app.py --port 8080
+python3 app.py --host 0.0.0.0 --port 8080   # expose on LAN
+python3 app.py --no-browser             # skip auto-open
+```
+
+The UI has preset buttons (Light / Medium / Heavy / Custom), checkboxes for all nine passes, a stats bar (input bytes, output bytes, expansion ratio, active pass count), Copy and Download buttons on the output pane, an Example button, file Upload, and drag-and-drop. The POST `/obfuscate` endpoint accepts `{source, opts}` JSON and returns `{result, input_size, output_size}`.
 
 ---
 
@@ -202,7 +224,8 @@ cd io && mkdir build && cd build && cmake .. && make -j4
 | `--add-junk` | 6 — prepend dead-code block |
 | `--deep-nums` | 7 — 3 rounds of number obfuscation (nested trees) |
 | `--obfuscate-nils` | 8 — replace `nil` tokens with `(0 > 1)` |
-| `--all` | all eight passes |
+| `--obfuscate-bools` | 9 — replace `true`/`(1=1)` and `false`/`(1<>1)` |
+| `--all` | all nine passes |
 
 ---
 
@@ -229,11 +252,17 @@ cat src/chalkobusf.ns | ./dist/chalkobusf --strip-comments --minify
 
 ## Running tests
 
-**Io test suite** (the primary, runnable test suite — 22 explicit assertions):
+**Python test suite** (no extra interpreter needed — 30 explicit assertions):
+```
+python3 tests/basic.py
+```
+Loads `run.py`'s `_Chalkobusf` class directly, exercises every pass with focused fixtures, checks `_gen_name` hex rollover and junk rotation, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
+
+**Io test suite** (requires the `io` interpreter — 30 explicit assertions):
 ```
 io tests/basic.io
 ```
-Loads `src/chalkobusf.io`, exercises each pass with a focused fixture, checks `genName` hex rollover and junk rotation, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
+Loads `src/chalkobusf.io`, exercises each pass with the same fixtures as the Python suite, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
 
 **NS tests** (require a Newton environment or compatible interpreter):
 ```
@@ -244,7 +273,8 @@ Loads `src/chalkobusf.ns` itself and exercises each pass, then the full pipeline
 **Cross-implementation check** (proves Io ≡ Python byte-for-byte). Run each flag through both runners and diff:
 ```
 for p in --strip-comments --minify --encode-strings --obfuscate-nums \
-         --rename-vars --add-junk --deep-nums --obfuscate-nils --all; do
+         --rename-vars --add-junk --deep-nums --obfuscate-nils \
+         --obfuscate-bools --all; do
   cmp -s <(python3 run.py $p src/chalkobusf.ns) \
          <(io run.io $p src/chalkobusf.ns) && echo "MATCH $p" || echo "DRIFT $p"
 done
@@ -280,7 +310,7 @@ A new pass must land in **all three implementations** so they stay byte-identica
 3. Add the `if opts.yourKey then result := self:YourPass(result);` (or the Io / Python equivalent) line in `Obfuscate`/`obfuscate`, in the intended pipeline position.
 4. For `run.py`, also add the `--your-flag` argparse entry and wire it into the `opts` dict and the `explicit`/`use_all` logic.
 
-Then add a fixture to `tests/basic.io`, run `io tests/basic.io`, and run the cross-implementation check (see *Running tests*) to confirm Io and Python still agree.
+Then add a fixture to both `tests/basic.py` and `tests/basic.io`, run both test suites, and run the cross-implementation check (see *Running tests*) to confirm Io and Python still agree. Also add `--your-flag` to `run.io`'s `flagKeys` map and the `useAll` block.
 
 ---
 

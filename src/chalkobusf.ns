@@ -1,11 +1,14 @@
 // chalkobusf — NewtonScript obfuscator
 // Passes (in pipeline order):
-//   1. StripComments    — remove // and /* */ comments
-//   2. MinifyWhitespace — collapse whitespace runs to a single space
-//   3. EncodeStrings    — split string literals then encode each half as Char() chains
-//   4. ObfuscateNumbers — replace integer literals with (a + b) split expressions
-//   5. RenameLocals     — rename local variables to _0xN generated names
-//   6. InjectJunk       — prepend rotating dead-code block
+//   1. StripComments     — remove // and /* */ comments
+//   2. MinifyWhitespace  — collapse whitespace runs to a single space
+//   3. EncodeStrings     — split string literals then encode each half as Char() chains
+//   4. ObfuscateNumbers  — replace integer literals with (a + b) split expressions
+//   5. RenameLocals      — rename local variables to _0xN generated names
+//   6. InjectJunk        — prepend rotating dead-code block
+//   7. DeepObfuscateNums — 3 rounds of pass 4 (nested arithmetic trees)
+//   8. ObfuscateNils     — replace standalone nil tokens with (0 > 1)
+//   9. ObfuscateBooleans — replace true with (1 = 1), false with (1 <> 1)
 
 chalkobusf := {
 
@@ -425,7 +428,8 @@ chalkobusf := {
       begin
         result := result & ch;
         i := i + 1;
-        while i < len do
+        local inStr := true;
+        while i < len and inStr do
         begin
           local c := SubStr(code, i, 1);
           result := result & c;
@@ -439,7 +443,7 @@ chalkobusf := {
             end;
           end
           else if c = "\"" then
-            i := len; // break
+            inStr := nil;
         end;
       end
       else if i + 3 <= len and SubStr(code, i, 3) = "nil" then
@@ -450,6 +454,79 @@ chalkobusf := {
         begin
           result := result & "(0 > 1)";
           i := i + 3;
+        end
+        else
+        begin
+          result := result & ch;
+          i := i + 1;
+        end;
+      end
+      else
+      begin
+        result := result & ch;
+        i := i + 1;
+      end;
+    end;
+    result
+  end,
+
+  // ── Pass 9: Boolean obfuscation ──────────────────────────────────────────
+
+  // Replace standalone true with (1 = 1) and false with (1 <> 1).
+  // Skips string literals and guards against partial identifiers like trueValue.
+  ObfuscateBooleans: func(code)
+  begin
+    local result := "";
+    local i := 0;
+    local len := StrLen(code);
+    while i < len do
+    begin
+      local ch := SubStr(code, i, 1);
+      if ch = "\"" then
+      begin
+        result := result & ch;
+        i := i + 1;
+        local inStr := true;
+        while i < len and inStr do
+        begin
+          local c := SubStr(code, i, 1);
+          result := result & c;
+          i := i + 1;
+          if c = "\\" then
+          begin
+            if i < len then
+            begin
+              result := result & SubStr(code, i, 1);
+              i := i + 1;
+            end;
+          end
+          else if c = "\"" then
+            inStr := nil;
+        end;
+      end
+      else if i + 4 <= len and SubStr(code, i, 4) = "true" then
+      begin
+        local before := i = 0 or not self:IsIdentChar(SubStr(code, i - 1, 1));
+        local after  := i + 4 >= len or not self:IsIdentChar(SubStr(code, i + 4, 1));
+        if before and after then
+        begin
+          result := result & "(1 = 1)";
+          i := i + 4;
+        end
+        else
+        begin
+          result := result & ch;
+          i := i + 1;
+        end;
+      end
+      else if i + 5 <= len and SubStr(code, i, 5) = "false" then
+      begin
+        local before := i = 0 or not self:IsIdentChar(SubStr(code, i - 1, 1));
+        local after  := i + 5 >= len or not self:IsIdentChar(SubStr(code, i + 5, 1));
+        if before and after then
+        begin
+          result := result & "(1 <> 1)";
+          i := i + 5;
         end
         else
         begin
@@ -477,6 +554,7 @@ chalkobusf := {
   //   addJunk         — pass 6
   //   deepNums        — pass 7 (3 rounds of number obfuscation; nested trees)
   //   obfuscateNils   — pass 8 (replace nil with (0 > 1))
+  //   obfuscateBools  — pass 9 (replace true/(1=1), false/(1<>1))
   Obfuscate: func(code, opts)
   begin
     self._counter   := 0;
@@ -489,6 +567,7 @@ chalkobusf := {
     if opts.deepNums       then result := self:DeepObfuscateNumbers(result, 3);
     if opts.renameVars     then result := self:RenameLocals(result);
     if opts.obfuscateNils  then result := self:ObfuscateNils(result);
+    if opts.obfuscateBools then result := self:ObfuscateBooleans(result);
     if opts.addJunk        then result := self:InjectJunk(result);
     result
   end,

@@ -30,10 +30,26 @@ Print("Junk-0: " & chalkobusf:InjectJunk("x := 1;"));
 Print("Junk-1: " & chalkobusf:InjectJunk("x := 1;"));
 Print("Junk-2: " & chalkobusf:InjectJunk("x := 1;"));
 
+// ── Pass 7: DeepObfuscateNumbers ─────────────────────────────────────────────
+local src7 := "local n := 8;";
+Print("DeepNums: " & chalkobusf:DeepObfuscateNumbers(src7, 3));
+// expected: local n := (((1 + 1) + (1 + 1)) + ((1 + 1) + (1 + 1)));
+
+// ── Pass 8: ObfuscateNils ─────────────────────────────────────────────────────
+local src8 := "local d := nil; local nilCount := 3;";
+Print("ObfuscateNils: " & chalkobusf:ObfuscateNils(src8));
+// expected: local d := (0 > 1); local nilCount := 3;
+
+// ── Pass 9: ObfuscateBooleans ─────────────────────────────────────────────────
+local src9 := "local flag := true; local done := false;";
+Print("ObfuscateBooleans: " & chalkobusf:ObfuscateBooleans(src9));
+// expected: local flag := (1 = 1); local done := (1 <> 1);
+
 // ── Full pipeline ─────────────────────────────────────────────────────────────
 local src6 := "// compute area
 local w := 10; /* width */
 local h := 5;
+local flag := true;
 local area := w * h;
 Print(\"Area: \" & NumberStr(area));";
 
@@ -42,7 +58,10 @@ local opts := {
   minifySpace:    true,
   encodeStrings:  true,
   obfuscateNums:  true,
+  deepNums:       true,
   renameVars:     true,
+  obfuscateNils:  true,
+  obfuscateBools: true,
   addJunk:        true,
 };
 Print("Full pipeline:");
