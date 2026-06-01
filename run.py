@@ -19,16 +19,32 @@ Pass flags (default: --all):
   --obfuscate-nils   Pass 8 — replace nil with (0 > 1)
   --obfuscate-bools  Pass 9 — replace true/(1=1) and false/(1<>1)
   --all              enable all nine passes (used when no pass flag given)
+  --preset LEVEL     shortcut: light / medium / heavy
+
+Presets:
+  light   passes 1, 2, 5                (strip, minify, rename)
+  medium  passes 1, 2, 4, 5, 8, 9       (+ number/nil/bool obfuscation)
+  heavy   all nine passes               (same as --all)
 
 Examples:
   python3 run.py src/chalkobusf.ns
+  python3 run.py --preset medium src/chalkobusf.ns
   python3 run.py --strip-comments --minify src/chalkobusf.ns
   python3 run.py src/chalkobusf.ns -o out.ns
+  python3 run.py --all --stats src/chalkobusf.ns > out.ns
   cat src/chalkobusf.ns | python3 run.py --all
 """
 
 import argparse
 import sys
+
+_PRESETS = {
+    'light':  {'stripComments', 'minifySpace', 'renameVars'},
+    'medium': {'stripComments', 'minifySpace', 'obfuscateNums',
+               'renameVars', 'obfuscateNils', 'obfuscateBools'},
+    'heavy':  {'stripComments', 'minifySpace', 'encodeStrings', 'obfuscateNums',
+               'deepNums', 'renameVars', 'obfuscateNils', 'obfuscateBools', 'addJunk'},
+}
 
 
 class _Chalkobusf:
@@ -385,25 +401,32 @@ def main():
     g.add_argument("--obfuscate-bools", action="store_true",
                    help="pass 9: replace true/(1=1) and false/(1<>1)")
 
+    xg = parser.add_argument_group("extras")
+    xg.add_argument("--preset", choices=["light", "medium", "heavy"], metavar="LEVEL",
+                    help="strength preset: light / medium / heavy")
+    xg.add_argument("--stats", action="store_true",
+                    help="print pass/size stats to stderr after obfuscating")
+
     args = parser.parse_args()
 
+    preset_keys = _PRESETS.get(args.preset, set())
     explicit = any([
         args.strip_comments, args.minify, args.encode_strings,
         args.obfuscate_nums, args.rename_vars, args.add_junk,
         args.deep_nums, args.obfuscate_nils, args.obfuscate_bools,
     ])
-    use_all = args.all or not explicit
+    use_all = args.all or (not explicit and not args.preset)
 
     opts = {
-        'stripComments':  use_all or args.strip_comments,
-        'minifySpace':    use_all or args.minify,
-        'encodeStrings':  use_all or args.encode_strings,
-        'obfuscateNums':  use_all or args.obfuscate_nums,
-        'deepNums':       use_all or args.deep_nums,
-        'renameVars':     use_all or args.rename_vars,
-        'obfuscateNils':  use_all or args.obfuscate_nils,
-        'obfuscateBools': use_all or args.obfuscate_bools,
-        'addJunk':        use_all or args.add_junk,
+        'stripComments':  use_all or args.strip_comments  or 'stripComments'  in preset_keys,
+        'minifySpace':    use_all or args.minify           or 'minifySpace'    in preset_keys,
+        'encodeStrings':  use_all or args.encode_strings   or 'encodeStrings'  in preset_keys,
+        'obfuscateNums':  use_all or args.obfuscate_nums   or 'obfuscateNums'  in preset_keys,
+        'deepNums':       use_all or args.deep_nums        or 'deepNums'       in preset_keys,
+        'renameVars':     use_all or args.rename_vars      or 'renameVars'     in preset_keys,
+        'obfuscateNils':  use_all or args.obfuscate_nils   or 'obfuscateNils'  in preset_keys,
+        'obfuscateBools': use_all or args.obfuscate_bools  or 'obfuscateBools' in preset_keys,
+        'addJunk':        use_all or args.add_junk         or 'addJunk'        in preset_keys,
     }
 
     if args.input:
@@ -416,6 +439,17 @@ def main():
         source = sys.stdin.read()
 
     result = _Chalkobusf().obfuscate(source, opts)
+
+    if args.stats:
+        active = [k for k, v in opts.items() if v]
+        in_b, out_b = len(source.encode()), len(result.encode())
+        in_l = source.count('\n') + (1 if source else 0)
+        out_l = result.count('\n') + (1 if result else 0)
+        print(f"passes:  {', '.join(active)}", file=sys.stderr)
+        print(f"input:   {in_b} bytes, {in_l} line{'s' if in_l != 1 else ''}", file=sys.stderr)
+        print(f"output:  {out_b} bytes, {out_l} line{'s' if out_l != 1 else ''}", file=sys.stderr)
+        if in_b:
+            print(f"ratio:   {out_b / in_b:.2f}×", file=sys.stderr)
 
     if args.output:
         try:

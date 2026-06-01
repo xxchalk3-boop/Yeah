@@ -20,6 +20,8 @@ tests/basic.io      — Io test suite, 30 explicit assertions (run: io tests/bas
 tests/basic.py      — Python test suite, 30 explicit assertions (run: python3 tests/basic.py)
 run.py              — Python CLI runner (faithful port of the NS logic)
 run.io              — Io CLI runner (same flags as run.py)
+app.py              — zero-dependency web UI (uses Python's built-in http.server)
+README.md           — project landing page with quick start, passes table, and examples
 .gitignore          — excludes PyInstaller build artifacts (dist/, build/, *.spec)
 ```
 
@@ -165,6 +167,21 @@ result := chalkobusf obfuscate(sourceCode, opts)
 Any key absent or set to `nil` skips that pass. Truthy value (including `true`) enables it.
 
 `Obfuscate` resets `_counter` and `_junkPhase` to 0 at the start of each call, so repeated calls are deterministic.
+
+---
+
+## Web UI
+
+`app.py` serves a single-page browser interface backed by `_Chalkobusf` from `run.py`. No extra packages required.
+
+```sh
+python3 app.py                          # opens http://127.0.0.1:5000 automatically
+python3 app.py --port 8080
+python3 app.py --host 0.0.0.0 --port 8080   # expose on LAN
+python3 app.py --no-browser             # skip auto-open
+```
+
+The UI has preset buttons (Light / Medium / Heavy / Custom), checkboxes for all nine passes, a stats bar (input bytes, output bytes, expansion ratio, active pass count), Copy and Download buttons on the output pane, an Example button, file Upload, and drag-and-drop. The POST `/obfuscate` endpoint accepts `{source, opts}` JSON and returns `{result, input_size, output_size}`.
 
 ---
 
