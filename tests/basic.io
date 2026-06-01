@@ -106,6 +106,64 @@ check("P9 true inside string untouched",
     chalkobusf obfuscateBooleans("Print(\"true\");"),
     "Print(\"true\");")
 
+// ── Additional edge-case tests ───────────────────────────────────────────────
+
+// P1: newline preserved after stripped line comment
+check("P1 newline kept after comment",
+    chalkobusf stripComments("// hi\nx := 1;"),
+    "\nx := 1;")
+
+// P2: mixed whitespace (space + newline + space) collapses to one space
+check("P2 newline and spaces collapse",
+    chalkobusf minifyWhitespace("x :=\n  1;"),
+    "x := 1;")
+
+// P2: leading whitespace collapses to single space
+check("P2 leading spaces",
+    chalkobusf minifyWhitespace("   local x;"),
+    " local x;")
+
+// P3: single character string
+check("P3 single char A",
+    chalkobusf encodeStr("A"),
+    "Char(65)")
+
+// P3: two-char string AB
+check("P3 two chars AB",
+    chalkobusf encodeStr("AB"),
+    "Char(65) & Char(66)")
+
+// P4: odd number splits asymmetrically (floor left, ceiling right)
+check("P4 odd 7",
+    chalkobusf obfuscateNumber(7),
+    "(3 + 4)")
+
+// P4: zero
+check("P4 zero",
+    chalkobusf obfuscateNumber(0),
+    "(0 + 0)")
+
+// P4: large even number
+check("P4 1000",
+    chalkobusf obfuscateNumber(1000),
+    "(500 + 500)")
+
+// P5: two distinct locals each get unique generated names
+chalkobusf _counter = 0
+check("P5 two distinct locals",
+    chalkobusf renameLocals("local a := 1; local b := 2; Print(a & b);"),
+    "local _0x0 := 1; local _0x1 := 2; Print(_0x0 & _0x1);")
+
+// P8: two nil tokens both replaced
+check("P8 two nils replaced",
+    chalkobusf obfuscateNils("local a := nil; local b := nil;"),
+    "local a := (0 > 1); local b := (0 > 1);")
+
+// P9: true and false both replaced in same statement
+check("P9 true and false together",
+    chalkobusf obfuscateBooleans("if true then x := false;"),
+    "if (1 = 1) then x := (1 <> 1);")
+
 // ── Full pipeline determinism ────────────────────────────────────────────────
 opts := Map clone do(
     atPut("stripComments", true); atPut("minifySpace", true)
