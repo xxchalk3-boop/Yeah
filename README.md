@@ -27,6 +27,9 @@ cat src/foo.ns | python3 run.py --all
 ```sh
 io run.io src/chalkobusf.ns
 io run.io --preset medium src/foo.ns
+io run.io --all --stats src/foo.ns   # size stats to stderr
+io bench.io src/foo.ns               # per-pass timing and size table
+io inspect.io src/foo.ns             # preview code after each cumulative pass
 ```
 
 ---
@@ -80,7 +83,7 @@ if _0x1 > (0+0) then Print(Char(72)&Char(101)&Char(108)&Char(108)&Char(111)&...&
 
 ```sh
 python3 tests/basic.py   # 30 assertions — no extra interpreter needed
-io tests/basic.io        # 30 assertions — requires the Io interpreter
+io tests/basic.io        # 41 assertions — requires the Io interpreter
 ```
 
 ---

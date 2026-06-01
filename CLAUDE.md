@@ -16,10 +16,12 @@ The codebase files:
 src/chalkobusf.ns   — the obfuscator (single frame object, NewtonScript)
 src/chalkobusf.io   — the obfuscator, native Io port (single Object clone)
 tests/basic.ns      — NewtonScript smoke tests (one per pass + full pipeline)
-tests/basic.io      — Io test suite, 30 explicit assertions (run: io tests/basic.io)
+tests/basic.io      — Io test suite, 41 explicit assertions (run: io tests/basic.io)
 tests/basic.py      — Python test suite, 30 explicit assertions (run: python3 tests/basic.py)
 run.py              — Python CLI runner (faithful port of the NS logic)
-run.io              — Io CLI runner (same flags as run.py)
+run.io              — Io CLI runner (same flags as run.py, including --preset and --stats)
+bench.io            — Io benchmark: runs each pass in isolation, reports sizes and times
+inspect.io          — Io inspector: shows 100-char preview after each cumulative pass
 app.py              — zero-dependency web UI (uses Python's built-in http.server)
 README.md           — project landing page with quick start, passes table, and examples
 .gitignore          — excludes PyInstaller build artifacts (dist/, build/, *.spec)
@@ -200,7 +202,9 @@ cat src/chalkobusf.ns | python3 run.py --all            # read from stdin
 **With Io** (requires the `io` interpreter — see below):
 ```
 io run.io src/chalkobusf.ns                             # all passes (default)
+io run.io --preset medium src/chalkobusf.ns             # preset shortcut
 io run.io --strip-comments --minify src/chalkobusf.ns
+io run.io --all --stats src/chalkobusf.ns > out.ns      # size stats to stderr
 io run.io src/chalkobusf.ns -o obfuscated.ns
 cat src/chalkobusf.ns | io run.io --all
 ```
@@ -226,6 +230,16 @@ cd io && mkdir build && cd build && cmake .. && make -j4
 | `--obfuscate-nils` | 8 — replace `nil` tokens with `(0 > 1)` |
 | `--obfuscate-bools` | 9 — replace `true`/`(1=1)` and `false`/`(1<>1)` |
 | `--all` | all nine passes |
+| `--preset light\|medium\|heavy` | named shortcut (both runners) |
+| `--stats` | print size/expansion stats to stderr after obfuscating (both runners) |
+
+**Io-only utilities:**
+
+```
+io bench.io [FILE]     # per-pass timing and size table (default: src/chalkobusf.ns)
+io inspect.io [FILE]   # cumulative pass preview — 100-char snapshot after each step
+io inspect.io --from 3 FILE   # start the cumulative preview from pass 3
+```
 
 ---
 
@@ -258,11 +272,11 @@ python3 tests/basic.py
 ```
 Loads `run.py`'s `_Chalkobusf` class directly, exercises every pass with focused fixtures, checks `_gen_name` hex rollover and junk rotation, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
 
-**Io test suite** (requires the `io` interpreter — 30 explicit assertions):
+**Io test suite** (requires the `io` interpreter — 41 explicit assertions):
 ```
 io tests/basic.io
 ```
-Loads `src/chalkobusf.io`, exercises each pass with the same fixtures as the Python suite, and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
+Loads `src/chalkobusf.io`, exercises each pass with focused fixtures (including edge cases: odd numbers, zero, two-nil lines, mixed whitespace, single-char strings, two-distinct-locals renaming), and verifies full-pipeline determinism. Exits non-zero if any assertion fails.
 
 **NS tests** (require a Newton environment or compatible interpreter):
 ```
